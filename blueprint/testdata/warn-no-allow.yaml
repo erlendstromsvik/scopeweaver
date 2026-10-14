@@ -1,0 +1,31 @@
+# Valid but emits a warning: there is no 'allow' constraint, only a 'deny'.
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe"
+  window:
+    start: 2026-10-20
+    end: 2026-10-24
+  reference: "ENG-123"
+company:
+  name: Example Corp
+scope:
+  - { kind: domain, value: example.com }
+constraints:
+  - kind: deny
+    text: No exploitation or destructive requests.
+task:
+  goal: Map and fingerprint.
+  timeout_seconds: 14400
+  plan_heartbeat_seconds: 600
+runtime:
+  workers: 2
+  llm_max_concurrent: 2
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${env:ARTEX_LLM_API_KEY}
+admin:
+  username: ARTEX
+  password: ${env:SW_ADMIN_PASSWORD}

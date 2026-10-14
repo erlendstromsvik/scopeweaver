@@ -1,0 +1,43 @@
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe (Example Corp Security)"
+  client_contact: "Jane Doe <security@example.com>"
+  window:
+    start: 2026-10-20
+    end: 2026-10-24
+  reference: "ENG-123"
+  notes: "Signed scope agreement on file"
+company:
+  name: Example Corp
+  logo: ""
+scope:
+  - { kind: domain, value: example.com }
+  - { kind: ip, value: 203.0.113.10 }
+  - { kind: cidr, value: 203.0.113.0/24 }
+  - { kind: icp, value: "ICP-2026-000" }
+  - { kind: keyword, value: example }
+constraints:
+  - kind: allow
+    text: Only test example.com and subdomains attributable to Example Corp.
+  - kind: deny
+    text: No exploitation or destructive requests. Mapping only.
+task:
+  goal: Map and fingerprint the application and its API.
+  timeout_seconds: 14400
+  coverage_enabled: false
+  seed_first_intent: false
+  plan_heartbeat_seconds: 600
+runtime:
+  workers: 2
+  llm_max_concurrent: 2
+  web_search_enabled: false
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${env:ARTEX_LLM_API_KEY}
+  max_tokens: 0
+admin:
+  username: ARTEX
+  password: ${file:/run/secrets/sw_admin_password}
