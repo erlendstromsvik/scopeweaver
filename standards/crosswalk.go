@@ -1,5 +1,7 @@
 package standards
 
+//go:generate go run gen_crosswalk.go
+
 import (
 	"os"
 

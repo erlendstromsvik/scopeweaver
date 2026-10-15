@@ -40,6 +40,20 @@ CISA Known Exploited Vulnerabilities (KEV) Catalog — snapshot
   Source:  https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
   Status:  U.S. Government work; in the public domain in the United States
            (https://www.cisa.gov/known-exploited-vulnerabilities-catalog).
+
+OpenCRE (Common Requirement Enumeration) — API snapshot
+  Files:   opencre/asvs-4.0.3.links.json, opencre/cwe.links.json, opencre/wstg.links.json
+  Source:  https://www.opencre.org/rest/v1/standard/{ASVS,CWE,OWASP Web Security Testing Guide (WSTG)}
+  License: OpenCRE is an OWASP project; content Creative Commons
+           Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+           https://www.opencre.org/  (c) OWASP / OpenCRE contributors.
+           Slimmed to {standard id → linked CRE ids} for the crosswalk derivation.
+
+OWASP ASVS version/CWE mapping files
+  Files:   asvs/mappings/*.yml, asvs/mappings/v5.0.be_cwe_mapping.json
+  Source:  https://github.com/OWASP/ASVS (tag v5.0.0, 5.0/mappings/)
+  License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+           (c) The OWASP Foundation. Redistributed verbatim with attribution.
 -----------------------------------------------------------------------
 
 Note on CC BY-SA ShareAlike: these files are redistributed verbatim as separate

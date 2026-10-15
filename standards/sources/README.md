@@ -25,6 +25,13 @@ attribution intact.
 | `cwe/cwec_v4.20.xml.zip` | cwe.mitre.org `/data/xml/cwec_latest.xml.zip` | CWE 4.20 (zipped XML; `cwec_v4.20.xml`) | 2026-10-15 | `3976f599e5e5200219a3108bb896d06e2a88fbb293369e1883cb423a5e9d7d50` |
 | `owasp-top10/top10-2025-categories.yaml` | transcribed from top10.owasp.org/2025 | Top 10:2025 (10 categories) | 2026-10-15 | (authored; not a verbatim upstream file) |
 | `cisa-kev/known_exploited_vulnerabilities.2026-10-15.json` | cisa.gov `/sites/default/files/feeds/known_exploited_vulnerabilities.json` | catalog `2026.10.14` (1745 entries) | 2026-10-15 | `47b463a136b8e0956756cfbcdbc2e4b4ccb60c96b4ca7a1ca9f507817cc83045` |
+| `opencre/asvs-4.0.3.links.json` | opencre.org `/rest/v1/standard/ASVS` (all pages) | OpenCRE snapshot; ASVS **4.0.3** → CRE (277 entries) | 2026-10-15 | `da60c283a5951b482db3f2de9ab59f898ae317aa0c21eb884eaa0c4f9a6765f7` |
+| `opencre/cwe.links.json` | opencre.org `/rest/v1/standard/CWE` (all pages) | OpenCRE snapshot; CWE → CRE (886 entries) | 2026-10-15 | `75e1e79642000ea8b31df6c9c9993d4663d53d8904b38cc6ea6d9ff33595ff51` |
+| `opencre/wstg.links.json` | opencre.org `/rest/v1/standard/OWASP Web Security Testing Guide (WSTG)` | OpenCRE snapshot; WSTG → CRE (59 entries) | 2026-10-15 | `f2f8df6768395e119a3de2b69d72cd21e8c93e79f0a1bcc4b5f22645fedacbcf` |
+| `asvs/mappings/mapping_v5.0.0_to_v4.0.3.yml` | github.com/OWASP/ASVS `5.0/mappings/` @ tag `v5.0.0` | official ASVS 5.0.0→4.0.3 bridge | 2026-10-15 | `d92aafd2410526f6e62666cbb12bb4ae170c54de5021fd48bf0f481af955207f` |
+| `asvs/mappings/mapping_v4.0.3_to_v5.0.0.yml` | github.com/OWASP/ASVS `5.0/mappings/` @ tag `v5.0.0` | official ASVS 4.0.3→5.0.0 bridge | 2026-10-15 | `f1e57762df69183e8759069da5b05402b439a55f80283b40217847dc09677664` |
+| `asvs/mappings/v5.0.be_cwe_mapping.json` | github.com/OWASP/ASVS `5.0/mappings/` @ tag `v5.0.0` | archived ASVS 5.0-beta→CWE map (cross-check only) | 2026-10-15 | `dda6ae18ef6fd171ae2846466ce601c53061d991eaa78939ce833563b9c62c19` |
+| `asvs/mappings/mapping_v5.0.be_to_v5.0.0.yml` | github.com/OWASP/ASVS `5.0/mappings/` @ tag `v5.0.0` | ASVS 5.0-beta→5.0.0 (to apply the archived CWE map) | 2026-10-15 | `af799f74a571a5fa19b306d4a2243e7dad2736c8ff2bc4144deb4787ec93eadc` |
 
 Notes:
 - The CISA KEV file is a **dated snapshot** used as a test fixture / starting
@@ -32,9 +39,16 @@ Notes:
   adapter fetches the current feed at runtime — this snapshot is not meant to be
   kept current.
 - CWE is distributed only as a zipped XML; it is stored as the verbatim zip
-  (`unzip -p cwe/cwec_v4.20.xml.zip` to read). E.1 extracts the id→name map it
-  needs; ASVS already carries the per-requirement CWE references used for the
-  crosswalk.
+  (`unzip -p cwe/cwec_v4.20.xml.zip` to read). E.1 extracts the id→name map it needs.
+- **Crosswalk (E-D5 → OpenCRE spine).** ASVS 5.0 ships **no** per-requirement CWE
+  (OWASP moved mappings to OpenCRE). So the ASVS↔CWE crosswalk is derived
+  (task E.9): `ASVS 5.0 →(asvs/mappings/mapping_v5.0.0_to_v4.0.3.yml)→ ASVS 4.0.3
+  →(opencre/asvs-4.0.3.links.json → CRE)→(opencre/cwe.links.json → CRE)→ CWE`, and
+  `WSTG →(opencre/wstg.links.json → CRE)→ CWE` directly. Because of the 4.0.3 hop +
+  OpenCRE imprecision these links are **advisory** (tagged `source`/`confidence`),
+  never authoritative. `asvs/mappings/v5.0.be_cwe_mapping.json` (+ the be→5.0.0
+  bridge) is an archived direct map kept only as a cross-check. The OpenCRE files
+  are a dated API snapshot, not a verbatim upstream release file.
 - NSM grunnprinsipper and NSM NCSC advisories are **not** vendored here: the
   grunnprinsipper is PDF-only (a hand-built mapping layer, Track E.8) and NSM
   NCSC has no confirmed machine-readable feed (open question for E.7).
