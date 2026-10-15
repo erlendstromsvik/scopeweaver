@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/locale"
@@ -16,31 +15,11 @@ import (
 // lenient shape checks; the catalog lives at this layer.
 
 // resolveFindingRef checks one classification ref against the embedded
-// standards catalog. asvs/wstg/owasp-top10 must resolve as real catalog ids
-// (owasp-top10 maps to the catalog's "top10"); cwe and cvss return nil because
-// CWE is not embedded and a CVSS vector is not a catalog id — the db store's
-// shape check covers those.
+// standards catalog. The logic lives in standards.ResolveFindingRef so the
+// agent's report_finding can validate the same refs without importing the
+// server (roadmap E.2b-3).
 func resolveFindingRef(scheme, ref string) error {
-	if !db.ValidRefScheme(scheme) {
-		return locale.Errorf("unknown %s ref: %s", scheme, ref)
-	}
-	ref = strings.TrimSpace(ref)
-	var cat *standards.Catalog
-	var err error
-	if cat, err = standards.Embedded(); err != nil {
-		return err
-	}
-	switch scheme {
-	case db.SchemeASVS, db.SchemeWSTG:
-		if !cat.Resolve(scheme, ref) {
-			return locale.Errorf("unknown %s ref: %s", scheme, ref)
-		}
-	case db.SchemeOWASPTop10:
-		if !cat.Resolve(standards.SchemeTop10, ref) {
-			return locale.Errorf("unknown %s ref: %s", scheme, ref)
-		}
-	}
-	return nil
+	return standards.ResolveFindingRef(scheme, ref)
 }
 
 // listFindingRefs returns a finding's classification refs: {"refs":[{scheme,ref}]}.

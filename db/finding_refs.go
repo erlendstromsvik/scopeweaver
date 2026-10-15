@@ -123,6 +123,13 @@ func (d *DB) AddFindingRef(findingID int64, scheme, ref string) (int64, error) {
 	return id, nil
 }
 
+// AddFindingRef validates and inserts one classification ref for a finding
+// through this store's underlying DB (same passthrough shape as
+// ExplorationStore.RecordFinding reaching s.db).
+func (s *ExplorationStore) AddFindingRef(findingID int64, scheme, ref string) (int64, error) {
+	return s.db.AddFindingRef(findingID, scheme, ref)
+}
+
 // ListFindingRefs returns every ref for a finding, ordered by scheme then ref.
 func (d *DB) ListFindingRefs(findingID int64) ([]*FindingRef, error) {
 	rows, err := d.Query(`

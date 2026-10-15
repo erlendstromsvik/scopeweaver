@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/standards"
 	acperm "github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -1230,6 +1231,8 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		"evidence_hint_id": idp(locale.Text(t.language, "Optional hint node ID in this task for this finding; includes its structured traffic_refs. Do not reference inherited hints or another finding's hint.")),
 		"traffic_refs": map[string]any{"type": "array", "description": locale.Text(t.language, "Optional: for HTTP/HTTPS, search and verify each request/response supports the finding before supplying actual IDs in reproduction order. For TCP/non-HTTP, absent capture, or no exact match, omit or pass []; reporting remains allowed. Explain the absence and supply other verifiable evidence. Never guess IDs, infer association from domain/time alone, or repeat probes merely for capture. Roles: baseline normal control, proof vulnerability evidence, verification additional validation, supporting supplementary evidence."),
 			"items": obj(map[string]any{"traffic_id": str(locale.Text(t.language, "Actual traffic ID returned by traffic_search")), "role": map[string]any{"type": "string", "enum": []string{"baseline", "proof", "verification", "supporting"}}, "note": str(locale.Text(t.language, "How this traffic supports the finding"))}, "traffic_id")},
+		"refs": map[string]any{"type": "array", "description": locale.Text(t.language, "Optional classification of the finding, e.g. {scheme: cwe, ref: CWE-79}, {scheme: owasp-top10, ref: A05:2025}, {scheme: asvs, ref: V5.1.1}. Only IDs you are confident about."),
+			"items": obj(map[string]any{"scheme": map[string]any{"type": "string", "enum": []string{"cwe", "asvs", "wstg", "owasp-top10", "cvss"}}, "ref": str(locale.Text(t.language, "Classification reference, e.g. CWE-79 or A05:2025"))}, "scheme", "ref")},
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 		var a struct {
 			VulnClass, Name, Severity, Summary, Evidence string
@@ -1237,6 +1240,10 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			AssetIDs                                     []json.RawMessage `json:"asset_ids"`
 			TrafficRefs                                  []db.TrafficRef   `json:"traffic_refs"`
 			EvidenceHintID                               json.RawMessage   `json:"evidence_hint_id"`
+			Refs                                         []struct {
+				Scheme string `json:"scheme"`
+				Ref    string `json:"ref"`
+			} `json:"refs"`
 		}
 		if err := json.Unmarshal(in, &a); err != nil {
 			return actool.Errorf(locale.ErrorMessage(locale.FromContext(ctx), err)), nil
@@ -1290,7 +1297,42 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			*db.RecordedFinding
 			EvidenceStatus string `json:"evidence_status"`
 			EvidenceNote   string `json:"evidence_note,omitempty"`
+			RefsAdded      []struct {
+				Scheme string `json:"scheme"`
+				Ref    string `json:"ref"`
+			} `json:"refs_added,omitempty"`
+			RefsRejected []struct {
+				Scheme string `json:"scheme"`
+				Ref    string `json:"ref"`
+				Error  string `json:"error"`
+			} `json:"refs_rejected,omitempty"`
 		}{RecordedFinding: recorded, EvidenceStatus: "bound"}
+		// Classification refs (E.2b-3) attach only after the finding is recorded:
+		// a bad ref is reported back in refs_rejected, never fails or undoes the
+		// finding. Each ref is checked against the embedded standards catalog
+		// (standards.ResolveFindingRef) before the store call.
+		for _, r := range a.Refs {
+			if err := standards.ResolveFindingRef(r.Scheme, r.Ref); err != nil {
+				result.RefsRejected = append(result.RefsRejected, struct {
+					Scheme string `json:"scheme"`
+					Ref    string `json:"ref"`
+					Error  string `json:"error"`
+				}{Scheme: r.Scheme, Ref: r.Ref, Error: locale.ErrorMessage(locale.FromContext(ctx), err)})
+				continue
+			}
+			if _, err := t.ts.AddFindingRef(recorded.FindingID, r.Scheme, r.Ref); err != nil {
+				result.RefsRejected = append(result.RefsRejected, struct {
+					Scheme string `json:"scheme"`
+					Ref    string `json:"ref"`
+					Error  string `json:"error"`
+				}{Scheme: r.Scheme, Ref: r.Ref, Error: locale.ErrorMessage(locale.FromContext(ctx), err)})
+				continue
+			}
+			result.RefsAdded = append(result.RefsAdded, struct {
+				Scheme string `json:"scheme"`
+				Ref    string `json:"ref"`
+			}{Scheme: r.Scheme, Ref: r.Ref})
+		}
 		if len(recorded.Traffic.Bindings) == 0 {
 			result.EvidenceStatus = "not_bound"
 			result.EvidenceNote = locale.Text(locale.FromContext(ctx), "Finding saved without traffic bindings. TCP/no-packet cases may continue normally. If verified HTTP traffic exists, bind it using bind_finding_traffic or the finding page before completing handoff. Do not create a duplicate finding.")
