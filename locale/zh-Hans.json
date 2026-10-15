@@ -1753,6 +1753,7 @@
   "bad format: ": "格式无效：",
   "bad status: ": "状态无效：",
   "bad severity: ": "严重程度无效：",
+  "unknown %s ref: %s": "未知的 %s 引用：%s",
   "invalid JSON: ": "JSON 无效：",
   "db: ": "数据库：",
   "empty body from model": "模型返回空正文",

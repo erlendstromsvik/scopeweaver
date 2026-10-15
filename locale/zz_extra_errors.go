@@ -188,6 +188,9 @@ func init() {
 	if !Has("bad severity: ") {
 		Register("bad severity: ", "bad severity: ", "잘못된 심각도: ")
 	}
+	if !Has("unknown %s ref: %s") {
+		Register("unknown %s ref: %s", "unknown %s ref: %s", "알 수 없는 %s 참조: %s")
+	}
 	if !Has("invalid JSON: ") {
 		Register("invalid JSON: ", "invalid JSON: ", "잘못된 JSON: ")
 	}

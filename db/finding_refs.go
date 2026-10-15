@@ -50,8 +50,7 @@ var (
 // validateFindingRef validates the scheme and ref and returns the trimmed ref.
 // Shape checks stay deliberately lenient.
 //
-// TODO(E.2b): resolve ref against the standards catalog (the db package stays
-// free of the filesystem catalog; resolution belongs at the server layer).
+// Catalog resolution happens at the server layer (server/finding_refs_api.go).
 func validateFindingRef(scheme, ref string) (string, error) {
 	if !ValidRefScheme(scheme) {
 		return "", locale.Errorf("unknown finding ref scheme %q", scheme)
