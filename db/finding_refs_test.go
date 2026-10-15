@@ -264,3 +264,71 @@ func TestFindingRefCascade(t *testing.T) {
 		t.Fatalf("refs survived finding deletion: got %d rows, want 0", len(got))
 	}
 }
+
+// TestFindingRefExportCarriesRefs checks the export path attaches each
+// finding's refs (ordered by scheme then ref) with one lookup, and leaves a
+// finding without refs with none.
+func TestFindingRefExportCarriesRefs(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping", err)
+	}
+	t.Cleanup(func() { d.Close() })
+	tk, err := d.CreateTask("finding refs export test", "Goal", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.DeleteTask(tk.ID) })
+
+	withRefs, err := d.AddFinding(tk.ID, 0, "XSS", "Reflected XSS", "high", "s", "poc", "worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutRefs, err := d.AddFinding(tk.ID, 0, "INFO", "Info leak", "low", "s", "poc", "worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range [][2]string{
+		{SchemeOWASPTop10, "A05:2025"},
+		{SchemeCWE, "CWE-89"},
+		{SchemeCWE, "CWE-79"},
+		{SchemeASVS, "V5.3.3"},
+	} {
+		if _, err := d.AddFindingRef(withRefs, r[0], r[1]); err != nil {
+			t.Fatalf("AddFindingRef(%s,%s): %v", r[0], r[1], err)
+		}
+	}
+
+	fs, err := d.ListFindingsForExport(FindingFilter{}, []int64{withRefs, withoutRefs})
+	if err != nil {
+		t.Fatalf("ListFindingsForExport: %v", err)
+	}
+	if len(fs) != 2 {
+		t.Fatalf("export returned %d findings, want 2", len(fs))
+	}
+	byID := map[int64]*DBFinding{}
+	for _, f := range fs {
+		byID[f.ID] = f
+	}
+	got := byID[withRefs].Refs
+	want := []struct{ scheme, ref string }{
+		{SchemeASVS, "V5.3.3"},
+		{SchemeCWE, "CWE-79"},
+		{SchemeCWE, "CWE-89"},
+		{SchemeOWASPTop10, "A05:2025"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("exported refs = %d, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Scheme != w.scheme || got[i].Ref != w.ref {
+			t.Errorf("ref %d = (%s,%s), want (%s,%s)", i, got[i].Scheme, got[i].Ref, w.scheme, w.ref)
+		}
+		if got[i].FindingID != withRefs {
+			t.Errorf("ref %d has finding_id %d, want %d", i, got[i].FindingID, withRefs)
+		}
+	}
+	if len(byID[withoutRefs].Refs) != 0 {
+		t.Errorf("finding without refs exported %d refs, want 0", len(byID[withoutRefs].Refs))
+	}
+}

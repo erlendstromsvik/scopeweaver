@@ -20,6 +20,7 @@ type DBFinding struct {
 	EvidenceVersion       int64
 	ReportEvidenceVersion int64
 	TrafficBindings       []FindingTrafficBinding // populated only for export
+	Refs                  []*FindingRef           // populated only for export
 
 	ID              int64
 	TaskID          *int64
@@ -517,6 +518,19 @@ func (d *DB) ListFindingsForExport(f FindingFilter, ids []int64) ([]*DBFinding, 
 		}
 		_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)
 		out = append(out, f)
+	}
+	if len(out) > 0 {
+		ids := make([]int64, len(out))
+		for i, f := range out {
+			ids[i] = f.ID
+		}
+		refsByFinding, err := d.listFindingRefsFor(ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range out {
+			f.Refs = refsByFinding[f.ID]
+		}
 	}
 	return out, rows.Err()
 }

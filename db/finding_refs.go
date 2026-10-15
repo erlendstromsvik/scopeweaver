@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -135,6 +136,39 @@ func (d *DB) ListFindingRefs(findingID int64) ([]*FindingRef, error) {
 	}
 	defer rows.Close()
 	return scanFindingRefs(rows)
+}
+
+// listFindingRefsFor loads refs for many findings in one query, keyed by
+// finding id. Within each finding the refs are ordered by scheme then ref,
+// matching ListFindingRefs. Findings with no refs have no map entry.
+func (d *DB) listFindingRefsFor(ids []int64) (map[int64][]*FindingRef, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		ph[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	rows, err := d.Query(`
+		SELECT `+findingRefSelectCols+`
+		FROM finding_refs
+		WHERE finding_id IN (`+strings.Join(ph, ",")+`)
+		ORDER BY finding_id, scheme, ref`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs, err := scanFindingRefs(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]*FindingRef)
+	for _, r := range refs {
+		out[r.FindingID] = append(out[r.FindingID], r)
+	}
+	return out, nil
 }
 
 // SetFindingRefs replaces all refs for a finding with the given set, in one tx.

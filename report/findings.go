@@ -155,7 +155,7 @@ func FindingsCSV(fs []*db.DBFinding, langs ...locale.Lang) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"ID", locale.Text(lang, "Name"), locale.Text(lang, "Class"), locale.Text(lang, "Severity"), locale.Text(lang, "Status"), locale.Text(lang, "Task"), locale.Text(lang, "Found at"), locale.Text(lang, "Overview"), locale.Text(lang, "Traffic evidence count"), locale.Text(lang, "Traffic evidence IDs")})
+	_ = w.Write([]string{"ID", locale.Text(lang, "Name"), locale.Text(lang, "Class"), locale.Text(lang, "Severity"), locale.Text(lang, "Status"), locale.Text(lang, "Task"), locale.Text(lang, "Found at"), locale.Text(lang, "Overview"), locale.Text(lang, "Traffic evidence count"), locale.Text(lang, "Traffic evidence IDs"), "CWE", "ASVS", "WSTG", "OWASP Top 10", "CVSS"})
 	for _, f := range items {
 		_ = w.Write([]string{
 			fmt.Sprintf("%d", f.ID),
@@ -167,6 +167,11 @@ func FindingsCSV(fs []*db.DBFinding, langs ...locale.Lang) []byte {
 			f.CreatedAt.Format("2006-01-02 15:04:05"),
 			strings.TrimSpace(f.Summary),
 			fmt.Sprint(len(f.TrafficBindings)), findingTrafficIDs(f),
+			findingRefsCell(f, db.SchemeCWE),
+			findingRefsCell(f, db.SchemeASVS),
+			findingRefsCell(f, db.SchemeWSTG),
+			findingRefsCell(f, db.SchemeOWASPTop10),
+			findingRefsCell(f, db.SchemeCVSS),
 		})
 	}
 	w.Flush()
@@ -179,6 +184,17 @@ func findingTrafficIDs(f *db.DBFinding) string {
 		ids = append(ids, fmt.Sprint(b.ID))
 	}
 	return strings.Join(ids, ",")
+}
+
+// findingRefsCell joins the finding's refs of one scheme with "; " (empty when none).
+func findingRefsCell(f *db.DBFinding, scheme string) string {
+	var refs []string
+	for _, r := range f.Refs {
+		if r.Scheme == scheme {
+			refs = append(refs, r.Ref)
+		}
+	}
+	return strings.Join(refs, "; ")
 }
 
 func findingTrafficMarkdown(f *db.DBFinding, attachments bool, langs ...locale.Lang) string {

@@ -310,6 +310,7 @@ type FindingDTO struct {
 	ReportEvidenceVersion int64                      `json:"report_evidence_version"`
 	ReportStale           bool                       `json:"report_stale"`
 	TrafficBindings       []db.FindingTrafficBinding `json:"traffic_bindings,omitempty"`
+	Refs                  []FindingRefDTO            `json:"refs,omitempty"`
 
 	ID        string `json:"id"`
 	FindingID string `json:"finding_id,omitempty"` // standalone findings-table id — the handle for status updates
@@ -329,6 +330,13 @@ type FindingDTO struct {
 	Inherited       bool              `json:"inherited,omitempty"`
 	Assets          []FindingAssetDTO `json:"assets,omitempty"`
 	TS              string            `json:"ts"`
+}
+
+// FindingRefDTO is one structured classification ref (scheme + ref) carried by a
+// finding; populated only where the export path loads refs.
+type FindingRefDTO struct {
+	Scheme string `json:"scheme"`
+	Ref    string `json:"ref"`
 }
 
 // FindingAssetDTO is one asset a finding is anchored to, pre-labelled for display.
@@ -450,6 +458,7 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		FindingID:    i64s(f.ID),
 		TrafficCount: f.TrafficCount, EvidenceVersion: f.EvidenceVersion, ReportEvidenceVersion: f.ReportEvidenceVersion,
 		ReportStale: f.Report != "" && f.EvidenceVersion != f.ReportEvidenceVersion, TrafficBindings: f.TrafficBindings,
+		Refs:      findingRefDTOs(f.Refs),
 		VulnClass: f.VulnClass,
 		Name:      f.Name,
 		Severity:  f.Severity,
@@ -468,6 +477,19 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		d.IntentID = "" // node_id is the finding node, not the intent; keep IntentID empty
 	}
 	return d
+}
+
+// findingRefDTOs maps db refs to DTOs; nil for empty input so the "refs" key
+// stays omitted on endpoints that don't load refs.
+func findingRefDTOs(in []*db.FindingRef) []FindingRefDTO {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]FindingRefDTO, 0, len(in))
+	for _, r := range in {
+		out = append(out, FindingRefDTO{Scheme: r.Scheme, Ref: r.Ref})
+	}
+	return out
 }
 
 // ---- Activity (frontend "Activity") ----
