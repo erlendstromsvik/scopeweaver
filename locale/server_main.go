@@ -48,5 +48,5 @@ func init() {
 	Register("instance is not provisioned; no deliverable", "instance is not provisioned; no deliverable", "인스턴스가 프로비저닝되지 않았습니다; 전달물 없음")
 	Register("blueprint task id is missing; no deliverable", "blueprint task id is missing; no deliverable", "블루프린트 작업 ID가 없습니다; 전달물 없음")
 	Register("task is not terminal yet; deliverable unavailable", "task is not terminal yet; deliverable unavailable", "작업이 아직 최종 상태가 아닙니다; 전달물 사용 불가")
-	Register("deliverable already exists: %s", "deliverable already exists: %s", "전달물이 이미 있습니다: %s")
+	Register("deliverable already exists", "deliverable already exists", "전달물이 이미 있습니다")
 }

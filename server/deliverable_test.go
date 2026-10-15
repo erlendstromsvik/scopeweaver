@@ -180,7 +180,7 @@ func TestDeliverableSecondRunFreshDir(t *testing.T) {
 	}
 	// A later `now` yields a different timestamped dir.
 	now := time.Now().Add(2 * time.Second)
-	dest, m, err := s.writeDeliverable(now)
+	dest, m, err := s.writeDeliverable(t.Context(), now)
 	if err != nil {
 		t.Fatalf("second write: %v", err)
 	}

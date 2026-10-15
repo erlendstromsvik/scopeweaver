@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -106,7 +107,7 @@ func (s *Server) SetDeliverableDir(dir string) {
 // is on disk — an observer sees a complete bundle or nothing. On any error
 // the temp dir is removed. The target name must not already exist: two
 // exports in the same second are refused rather than merged.
-func (s *Server) writeDeliverable(now time.Time) (string, deliverableManifest, error) {
+func (s *Server) writeDeliverable(ctx context.Context, now time.Time) (string, deliverableManifest, error) {
 	if s.deliverableDir == "" {
 		return "", deliverableManifest{}, errDeliverableNoDir
 	}
@@ -140,7 +141,7 @@ func (s *Server) writeDeliverable(now time.Time) (string, deliverableManifest, e
 		return "", deliverableManifest{}, err
 	}
 	defer os.RemoveAll(stage)
-	if err := s.evidenceStore().StageFindingsExport(s.ctx, findings, stage, true); err != nil {
+	if err := s.evidenceStore().StageFindingsExport(ctx, findings, stage, true); err != nil {
 		return "", deliverableManifest{}, err
 	}
 
@@ -247,7 +248,7 @@ func hashFile(path string) (string, int64, error) {
 // anything else is a 500. Success returns the bundle directory's basename
 // only — the host path stays server-side — plus the manifest.
 func (s *Server) deliverableHandler(w http.ResponseWriter, r *http.Request) {
-	dir, m, err := s.writeDeliverable(time.Now())
+	dir, m, err := s.writeDeliverable(r.Context(), time.Now())
 	if err != nil {
 		switch {
 		case errors.Is(err, errDeliverableNoDir),
