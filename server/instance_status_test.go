@@ -15,38 +15,14 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 // instanceStatusTestServer builds a DB-backed Server with a JWT-authenticated
-// request helper, mirroring trafficEvidenceServer. NOT &Server{m: m} — that
+// request helper. Thin wrapper over newTestServer; NOT &Server{m: m} — that
 // fixture gets 401 from the auth middleware.
 func instanceStatusTestServer(t *testing.T) (*Server, func(method, path, body string) *httptest.ResponseRecorder) {
 	t.Helper()
-	// Skip unless ARTEX_TEST_DSN points at a throwaway DB; never the app DSN.
-	_ = dbtest.DSN(t)
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.Close() })
-	ctx, cancel := context.WithCancel(context.Background())
-	td := t.TempDir()
-	s := New(ctx, m, td, td, td)
-	cancel()
-	token, err := signJWT(s.jwtKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := func(method, path, body string) *httptest.ResponseRecorder {
-		t.Helper()
-		r := httptest.NewRequest(method, path, strings.NewReader(body))
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		s.Handler().ServeHTTP(w, r)
-		return w
-	}
+	s, _, request := newTestServer(t)
 	return s, request
 }
 

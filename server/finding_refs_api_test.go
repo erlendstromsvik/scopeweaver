@@ -2,17 +2,13 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 func TestResolveFindingRef(t *testing.T) {
@@ -41,48 +37,15 @@ func TestResolveFindingRef(t *testing.T) {
 	}
 }
 
-// refsFixture creates a task with one finding and returns a request helper bound
-// to a fully constructed, JWT-authenticated Server (same shape as
-// trafficEvidenceServer).
+// refsFixture creates a task with one finding and returns a JWT-authenticated
+// request helper bound to a fully constructed Server (see newTestServer).
 func refsFixture(t *testing.T) (func(method, path, body string) *httptest.ResponseRecorder, int64) {
 	t.Helper()
-	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.Close() })
-	task, err := m.CreateTask("refs api", "goal", nil, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tid, err := strconv.ParseInt(task.ID, 10, 64)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.pg.Exec(`DELETE FROM task_archives WHERE task_id=$1`, tid); m.pg.DeleteTask(tid) })
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
-	s.archiveWG.Wait()
-	// Wait for the side-question snapshot writer before reusing this fixture.
-	<-s.side.done
-	token, err := signJWT(s.jwtKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, m, request := newTestServer(t)
+	_, tid := newTestTask(t, m, "refs api")
 	fid, err := m.pg.AddFinding(tid, 0, "TEST", "refs finding", "low", "summary", "", "test", nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	request := func(method, path, body string) *httptest.ResponseRecorder {
-		t.Helper()
-		r := httptest.NewRequest(method, path, strings.NewReader(body))
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		s.Handler().ServeHTTP(w, r)
-		return w
 	}
 	return request, fid
 }

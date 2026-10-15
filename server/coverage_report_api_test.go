@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"net/http"
@@ -11,43 +10,24 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 // TestCoverageReportHandler exercises the coverage-report endpoint over the full
 // auth + routing path against a throwaway DB: a task with one ASVS pass for
 // V1.1.1, then each format and each error case.
 func TestCoverageReportHandler(t *testing.T) {
-	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.Close() })
-	task, err := m.CreateTask("coverage report task", "goal", nil, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	taskID := mustTaskID(t, task.ID)
-
-	// Cancel BEFORE New so no background engine loops start on the task
-	// (the trafficEvidenceServer pattern); otherwise teardown hangs.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
-	s.archiveWG.Wait()
-	<-s.side.done
-	t.Cleanup(func() {
-		m.pg.Exec(`DELETE FROM task_archives WHERE task_id=$1`, taskID)
-		m.pg.DeleteTask(taskID)
-	})
-	token, err := signJWT(s.jwtKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, m, _ := newTestServer(t)
+	task, taskID := newTestTask(t, m, "coverage report task")
+	// This endpoint is exercised over both the authed and unauthed path, so the
+	// local helper takes an explicit auth flag rather than reusing the always-auth
+	// request from newTestServer.
 	request := func(path string, auth bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		if auth {
+			token, err := signJWT(s.jwtKey)
+			if err != nil {
+				t.Fatal(err)
+			}
 			r.Header.Set("Authorization", "Bearer "+token)
 		}
 		w := httptest.NewRecorder()
