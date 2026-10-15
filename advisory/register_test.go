@@ -174,24 +174,45 @@ func TestMergeRegisterNoNewEntries(t *testing.T) {
 	}
 }
 
-func TestEmbeddedNSMRegisterEmpty(t *testing.T) {
+// TestEmbeddedNSMRegister checks the committed register: it parses (unique ids),
+// the embedded copy matches the file line for line, and it holds the archive
+// backfill. It stays valid as the sync appends new lines.
+func TestEmbeddedNSMRegister(t *testing.T) {
 	got, err := EmbeddedNSMRegister()
 	if err != nil {
 		t.Fatalf("EmbeddedNSMRegister: %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("len = %d, want 0 (register is seeded in E.7d): %+v", len(got), got)
 	}
 	raw, err := os.ReadFile("register/nsm.jsonl")
 	if err != nil {
 		t.Fatalf("read register file: %v", err)
 	}
-	if len(raw) != 0 {
-		t.Fatalf("register/nsm.jsonl is %d bytes, want 0", len(raw))
+	lines := 0
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	if len(got) != lines {
+		t.Fatalf("embedded register has %d entries, file has %d lines", len(got), lines)
+	}
+	if len(got) < 252 {
+		t.Fatalf("len = %d, want at least the 252 backfilled alerts", len(got))
+	}
+	found := false
+	for _, e := range got {
+		if e.ID == "aktivt-utnyttelse-av-kritiske-sarbarheter-i-citrix-netscaler" {
+			found = true
+			if e.Date != "2026-09-27" || strings.Join(e.CVEs, ",") != "CVE-2026-88771,CVE-2026-88772" {
+				t.Fatalf("citrix entry = %+v", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("citrix alert missing from the register")
 	}
 	// Second call must reuse the cached parse, not re-read or error.
 	again, err := EmbeddedNSMRegister()
-	if err != nil || len(again) != 0 {
+	if err != nil || len(again) != len(got) {
 		t.Fatalf("second call: %d entries, err %v", len(again), err)
 	}
 }
