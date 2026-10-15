@@ -5,8 +5,6 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 	"github.com/google/uuid"
@@ -83,11 +81,7 @@ func (meteredStreamProvider) Stream(context.Context, llm.CompletionRequest) iter
 }
 
 func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
-	dsn := dbtest.DSN(t)
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pg := openTestDB(t)
 	defer pg.Close()
 	for _, early := range []bool{false, true} {
 		profile := "btw-metering-" + uuid.NewString()
@@ -105,7 +99,7 @@ func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
 		cancel()
 		var count, input, output int
 		var worker, status string
-		err = pg.QueryRow(`SELECT count(*),max(input_tokens),max(output_tokens),max(worker),max(status)
+		err := pg.QueryRow(`SELECT count(*),max(input_tokens),max(output_tokens),max(worker),max(status)
 FROM llm_usage WHERE profile_name=$1`, profile).Scan(&count, &input, &output, &worker, &status)
 		_, _ = pg.Exec(`DELETE FROM llm_usage WHERE profile_name=$1`, profile)
 		if err != nil {

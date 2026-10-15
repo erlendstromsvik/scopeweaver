@@ -3,19 +3,13 @@ package llmrec
 import (
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 	"github.com/google/uuid"
 )
 
 func TestWorkerOverrideMetersCompleteAndStreamWithoutBodyRecording(t *testing.T) {
-	dsn := dbtest.DSN(t)
-	pg, err := db.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pg := openTestDB(t)
 	defer pg.Close()
 	for _, mode := range []string{"complete", "stream", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
