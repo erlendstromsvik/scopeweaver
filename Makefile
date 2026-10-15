@@ -16,3 +16,12 @@ test-db:
 # Refresh the advisory register (NSM RSS) and the CISA KEV snapshot. Host-side; needs network.
 advisory-sync:
 	go run ./advisory/cmd/advisory-sync
+
+.PHONY: instance
+
+# Launch an ephemeral per-instance scan (compose project per instance). Pass a
+# blueprint: `make instance BP=blueprint.yaml`. Other subcommands
+# (status/report/destroy/ls) are invoked directly:
+# ./scripts/sw-instance.sh status ID=<instance-id>.
+instance:
+	./scripts/sw-instance.sh launch $(BP)

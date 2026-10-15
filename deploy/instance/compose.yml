@@ -1,0 +1,78 @@
+# Per-instance ScopeWeaver compose project (D.5a).
+#
+# Used by scripts/sw-instance.sh with `-p <instance-id>`: one app + one
+# Postgres, own volumes, own networks. Every host-side path comes from env
+# vars the launch script exports:
+#
+#   SW_IMAGE          app image (default scopeweaver:local)
+#   SW_INSTANCE_ID    instance id (sw-<utc>-<hex>); names volumes/networks
+#   SW_INSTANCE_DIR   per-instance host dir (~/.scopeweaver/instances/<id>)
+#   SW_DELIVERABLES   host deliverables root
+#
+# Secrets (D6): the app reads them as read-only FILES under /run/secrets via
+# ${file:/run/secrets/<name>} refs in the blueprint; the DB password arrives
+# via POSTGRES_PASSWORD_FILE and the mounted config.json. Nothing secret is
+# ever placed in `environment:`.
+name: ${SW_INSTANCE_ID:-sw-instance}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scopeweaver
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+      POSTGRES_DB: scopeweaver
+    volumes:
+      - ${SW_INSTANCE_ID:-sw-instance}-pgdata:/var/lib/postgresql/data
+      - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/secrets:/run/secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scopeweaver -d scopeweaver"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+    # No host ports: Postgres is reachable only on the internal network.
+    restart: unless-stopped
+
+  app:
+    image: ${SW_IMAGE:-scopeweaver:local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # SCOPEWEAVER_CONFIG points the app at the mounted read-only config file
+    # carrying the DSN (which embeds the pg password) — not an env var.
+    environment:
+      SCOPEWEAVER_CONFIG: /run/sw/config.json
+      SCOPEWEAVER_INSTANCE_ID: ${SW_INSTANCE_ID:-sw-instance}
+    command:
+      - "-addr"
+      - ":8787"
+      - "-proxy"
+      - ":8788"
+      - "-blueprint"
+      - "/run/sw/blueprint.yaml"
+      - "-deliverable-dir"
+      - "/deliverables"
+    ports:
+      # Random host port on loopback only; read it back with
+      # `docker compose port app 8787`.
+      - "127.0.0.1::8787"
+    volumes:
+      - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/secrets:/run/secrets:ro
+      - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/sw:/run/sw:ro
+      - ${SW_DELIVERABLES:?SW_DELIVERABLES is required}/${SW_INSTANCE_ID:-sw-instance}:/deliverables
+      - ${SW_INSTANCE_ID:-sw-instance}-appdata:/app/data
+    networks: [internal, egress]
+    restart: unless-stopped
+
+networks:
+  # App <-> Postgres only; no route to the outside world.
+  internal:
+    internal: true
+  # App egress (local LLM + target scope). D.6 adds the allowlist here.
+  egress:
+    internal: false
+
+volumes:
+  ${SW_INSTANCE_ID:-sw-instance}-pgdata:
+  ${SW_INSTANCE_ID:-sw-instance}-appdata:
