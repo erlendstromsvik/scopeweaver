@@ -1,0 +1,13 @@
+{
+  "requirements": [
+    {
+      "chapter_id": "V1",
+      "chapter_name": "Encoding and Sanitization",
+      "section_id": "V1.1",
+      "section_name": "Architecture",
+      "req_id": "V1.1.1",
+      "req_description": "Level 4 is out of the allowed 1..3 range.",
+      "L": "4"
+    }
+  ]
+}

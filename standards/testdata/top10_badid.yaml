@@ -1,0 +1,4 @@
+version: "2025"
+source: https://example.invalid/
+categories:
+  - { id: "A1:2025", title: "Single-digit id, should fail the pattern" }
