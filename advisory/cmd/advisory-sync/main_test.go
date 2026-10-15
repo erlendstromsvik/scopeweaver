@@ -25,7 +25,7 @@ func TestCommandRun(t *testing.T) {
 	reg := filepath.Join(dir, "nsm.jsonl")
 	kevPath := filepath.Join(dir, "kev.json")
 	rss := readFixture(t, "../../testdata/nsm-sarbarhetsvarsler-2026-10-15.rss")
-	kevBytes := readFixture(t, "../../../standards/sources/cisa-kev/known_exploited_vulnerabilities.json")
+	kevBytes := readFixture(t, "../../testdata/kev-2026.10.14.json")
 	nsmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(rss) }))
 	defer nsmSrv.Close()
 	kevSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(kevBytes) }))
@@ -100,7 +100,7 @@ func TestCommandRunSkipNSM(t *testing.T) {
 	dir := t.TempDir()
 	reg := filepath.Join(dir, "nsm.jsonl")
 	kevPath := filepath.Join(dir, "kev.json")
-	kevBytes := readFixture(t, "../../../standards/sources/cisa-kev/known_exploited_vulnerabilities.json")
+	kevBytes := readFixture(t, "../../testdata/kev-2026.10.14.json")
 	nsmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("NSM server hit despite -skip-nsm")
 	}))

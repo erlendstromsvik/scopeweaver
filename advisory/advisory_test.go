@@ -8,7 +8,14 @@ import (
 	"time"
 )
 
-const vendoredKEV = "../standards/sources/cisa-kev/known_exploited_vulnerabilities.json"
+// vendoredKEV is a FIXED copy of the KEV catalog (2026.10.14, 1745
+// entries), not the live snapshot: the advisory sync rewrites
+// standards/sources/cisa-kev/known_exploited_vulnerabilities.json, so
+// tests that assert exact versions/counts must read the fixture.
+const vendoredKEV = "testdata/kev-2026.10.14.json"
+
+// liveKEV is the snapshot the host-side sync actually refreshes.
+const liveKEV = "../standards/sources/cisa-kev/known_exploited_vulnerabilities.json"
 
 func TestParseKEVVendored(t *testing.T) {
 	b, err := os.ReadFile(vendoredKEV)
@@ -53,6 +60,26 @@ func TestParseKEVVendored(t *testing.T) {
 		if r.Link != "https://nvd.nist.gov/vuln/detail/"+r.ID {
 			t.Fatalf("record %s link = %q", r.ID, r.Link)
 		}
+	}
+}
+
+// TestParseKEVLiveSnapshot parses the live snapshot the sync rewrites,
+// with no exact version/count assertions: it must simply parse, carry a
+// non-empty catalogVersion and a substantial entry count.
+func TestParseKEVLiveSnapshot(t *testing.T) {
+	b, err := os.ReadFile(liveKEV)
+	if err != nil {
+		t.Fatalf("read live KEV snapshot: %v", err)
+	}
+	version, recs, err := ParseKEV(b)
+	if err != nil {
+		t.Fatalf("ParseKEV: %v", err)
+	}
+	if version == "" {
+		t.Fatal("catalogVersion is empty")
+	}
+	if len(recs) <= 1000 {
+		t.Fatalf("len(recs) = %d, want > 1000", len(recs))
 	}
 }
 
