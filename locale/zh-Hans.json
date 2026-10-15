@@ -1934,5 +1934,10 @@
   "| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n": "| 发现 | 严重程度 | 状态 | CWE | ASVS | ASVS（参考） |\n| --- | --- | --- | --- | --- | --- |\n",
   "Unclassified": "未分类",
   "No findings recorded for this task.": "此任务未记录任何发现。",
-  " (+%d more)": "（另有 %d 项）"
+  " (+%d more)": "（另有 %d 项）",
+  "deliverable directory is not configured": "未配置交付物目录",
+  "instance is not provisioned; no deliverable": "实例尚未配置，无交付物",
+  "blueprint task id is missing; no deliverable": "缺少蓝图任务 id，无交付物",
+  "task is not terminal yet; deliverable unavailable": "任务尚未进入终态，交付物不可用",
+  "deliverable already exists": "交付物已存在"
 }

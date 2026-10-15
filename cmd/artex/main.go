@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/blueprint"
 	"github.com/Autumn-27/artex/config"
+	"github.com/Autumn-27/artex/provision"
 	"github.com/Autumn-27/artex/selfupdate"
 	"github.com/Autumn-27/artex/server"
 )
@@ -54,6 +56,14 @@ func run() int {
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
 		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
+		// blueprintPath, when set, seeds this instance from a provisioning
+		// blueprint YAML (admin auth, company+scope, constraints, LLM profile,
+		// task) and admits the task at boot. Empty = unchanged behaviour.
+		blueprintPath = flag.String("blueprint", "", "path to a provisioning blueprint YAML; seed and start the instance at boot (empty to disable)")
+		// deliverableDir, when set, enables the deliverable bundle export:
+		// POST /api/instance/deliverable writes the run's findings, evidence
+		// and assets into a timestamped directory under here (task D.4a).
+		deliverableDir = flag.String("deliverable-dir", "", "directory the deliverable bundle is written to (empty disables)")
 	)
 	flag.Parse()
 
@@ -112,6 +122,24 @@ func run() int {
 	}
 	log.Printf(locale.Text(locale.ServerDefault(), "[config] Skill directory: %s"), skillDir)
 	srv := server.New(ctx, mgr, skillDir, *dataDir, config.BaseDir())
+	srv.SetDeliverableDir(*deliverableDir)
+
+	// Blueprint boot mode: seed and admit the instance before serving. The stores
+	// are open and restoreTaskRuntimes has resumed any prior run; nothing is
+	// served yet. Any failure is fatal — a half-provisioned instance must not run.
+	if *blueprintPath != "" {
+		bp, plan, err := loadBlueprintPlan(*blueprintPath)
+		if err != nil {
+			log.Fatalf("blueprint: %v", err)
+		}
+		if err := srv.ApplyBlueprint(bp, plan); err != nil {
+			log.Fatalf("blueprint: apply: %v", err)
+		}
+		// Watch the admitted task and emit the completion marker when it goes
+		// terminal, so the orchestrator can detect completion without the UI.
+		srv.WatchBlueprintCompletion(5 * time.Second)
+	}
+
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),
@@ -141,6 +169,30 @@ func run() int {
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
 	return code
+}
+
+// loadBlueprintPlan loads, validates and translates a provisioning blueprint
+// into the plan ApplyBlueprint applies. blueprint.Load already runs Validate and
+// returns the aggregated validation error, so a non-nil error here means the
+// file was unreadable, malformed, or invalid — the caller fails the boot. Any
+// non-fatal validation warnings are logged.
+func loadBlueprintPlan(path string) (*blueprint.Blueprint, *provision.Plan, error) {
+	bp, warnings, err := blueprint.Load(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, w := range warnings {
+		log.Printf(locale.Text(locale.ServerDefault(), "[blueprint] warning: %s"), w)
+	}
+	secrets, err := provision.ResolveSecrets(bp)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan, err := provision.BuildPlan(bp, secrets)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bp, plan, nil
 }
 
 // shutdownContext deliberately does not derive from signalCtx. If it did, the

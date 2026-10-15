@@ -44,4 +44,9 @@ func init() {
 	Register("Added a high-priority intent: ", "Added a high-priority intent: ", "높은 우선순위 의도를 추가했습니다: ")
 	Register("Hint saved for the planner's next round: ", "Hint saved for the planner's next round: ", "계획자가 다음 라운드에 읽을 힌트를 저장했습니다: ")
 	Register("(Rule mode, no LLM configured) Assets: %d; queued intents: %d; confirmed findings: %d.\nCommands: \"intent ...\" adds an intent; \"hint ...\" adds a planner hint.", "(Rule mode, no LLM configured) Assets: %d; queued intents: %d; confirmed findings: %d.\nCommands: \"intent ...\" adds an intent; \"hint ...\" adds a planner hint.", "(규칙 모드, LLM 미설정) 자산: %d, 대기 의도: %d, 확인된 취약점: %d.\n명령: \"의도 ...\"는 의도 추가, \"힌트 ...\"는 계획자 힌트 추가입니다.")
+	Register("deliverable directory is not configured", "deliverable directory is not configured", "전달물 디렉터리가 설정되지 않았습니다")
+	Register("instance is not provisioned; no deliverable", "instance is not provisioned; no deliverable", "인스턴스가 프로비저닝되지 않았습니다; 전달물 없음")
+	Register("blueprint task id is missing; no deliverable", "blueprint task id is missing; no deliverable", "블루프린트 작업 ID가 없습니다; 전달물 없음")
+	Register("task is not terminal yet; deliverable unavailable", "task is not terminal yet; deliverable unavailable", "작업이 아직 최종 상태가 아닙니다; 전달물 사용 불가")
+	Register("deliverable already exists", "deliverable already exists", "전달물이 이미 있습니다")
 }

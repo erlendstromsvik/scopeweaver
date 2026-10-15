@@ -3083,6 +3083,10 @@ const interfaceMessages: Record<keyof typeof interfaceSource, string> = {
   "m2880": "最近出现",
   "m2881": "来源",
   "m2882": "详情",
+  "m2883": "导出交付物",
+  "m2884": "运行结束后可用",
+  "m2885": "交付物已写入：{p0}",
+  "m2886": "交付物导出失败：{p0}",
 };
 export { interfaceMessages as interface };
 import type { en as providersSource } from './providers.ts';

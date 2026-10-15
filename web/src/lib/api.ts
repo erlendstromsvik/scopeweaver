@@ -35,8 +35,10 @@ import type {
   DailyTokenBucket,
   DeleteTaskOptions,
   DeleteTaskResult,
+  DeliverableResult,
   Edge,
   EvidenceBodyPreview,
+  InstanceStatus,
   ExplorationNodePage,
   ExplorationNodeQuery,
   Finding,
@@ -325,6 +327,9 @@ export const api = {
   deleteTaskArchive: (id: number) => del<TaskArchive>(`/task-archives/${id}`),
   deleteTaskArchives: (archiveIds: number[]) =>
     post<{ items: ArchiveBatchItem[] }>("/task-archives/delete/batch", { archive_ids: archiveIds }),
+  // Blueprint instance: follow the provisioned task and export its deliverable bundle.
+  instanceStatus: () => get<InstanceStatus>("/instance/status"),
+  exportDeliverable: () => post<DeliverableResult>("/instance/deliverable", {}),
   controlIntent: (
     taskId: string,
     intentId: string,

@@ -2881,7 +2881,11 @@ export const en = {
   "m2879": "Task IDs",
   "m2880": "Last seen",
   "m2881": "Source",
-  "m2882": "Details"
+  "m2882": "Details",
+  "m2883": "Export deliverable",
+  "m2884": "Available when the run has finished",
+  "m2885": "Deliverable written: {p0}",
+  "m2886": "Deliverable export failed: {p0}"
 };
 export const ko: Record<keyof typeof en, string> = {
   "m0001": "백엔드 서비스에 연결할 수 없습니다",
@@ -5765,5 +5769,9 @@ export const ko: Record<keyof typeof en, string> = {
   "m2879": "작업 ID",
   "m2880": "마지막 관측",
   "m2881": "출처",
-  "m2882": "세부 정보"
+  "m2882": "세부 정보",
+  "m2883": "산출물 내보내기",
+  "m2884": "실행이 완료되면 사용할 수 있습니다",
+  "m2885": "산출물 기록 완료: {p0}",
+  "m2886": "산출물 내보내기 실패: {p0}"
 };

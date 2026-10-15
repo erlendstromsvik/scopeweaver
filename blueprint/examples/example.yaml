@@ -1,0 +1,69 @@
+# ScopeWeaver blueprint — generic example for example.com.
+#
+# A blueprint fully describes one ephemeral ScopeWeaver instance: who
+# authorized the engagement, what is in scope, the rules of engagement, the
+# task to run, runtime limits, and the local LLM binding. This file documents
+# every field and validates clean (no errors, no warnings).
+#
+# This is a GENERIC example targeting example.com. Do not commit a real
+# client's scope here; real blueprints are kept outside this repository.
+
+version: 1                          # schema version; only 1 is valid
+
+name: example-com                   # instance/blueprint name, used as an
+                                    # instance-id prefix. Must match
+                                    # ^[a-z0-9][a-z0-9-]{0,62}$ (DNS/compose-safe).
+
+authorization:                      # REQUIRED — the run is refused without it.
+  authorized_by: "Jane Doe (Example Corp Security)"   # required, non-empty
+  client_contact: "Jane Doe <security@example.com>"   # optional
+  window:                           # required — the authorized testing window
+    start: 2026-10-20               # date (YYYY-MM-DD)
+    end: 2026-10-24                 # date (YYYY-MM-DD); must be >= start
+  reference: "ENG-123"              # required — ticket/agreement id, non-empty
+  notes: "Signed scope agreement on file"             # optional
+
+company:
+  name: Example Corp                # required, non-empty
+  logo: ""                          # optional (URL or path), may be empty
+
+scope:                              # required — at least one entry.
+  # kind is one of: domain | ip | cidr | icp | keyword ; value is required.
+  - { kind: domain, value: example.com }
+  - { kind: domain, value: cms.example.com }
+
+constraints:                        # 0+ entries; at least one allow is
+                                    # recommended (a warning is emitted if none).
+  - kind: allow                     # kind is one of: allow | deny
+    text: >-                        # required, non-empty
+      Only test example.com and cms.example.com (and subdomains attributable
+      to Example Corp). Do not test any other domains.
+  - kind: deny
+    text: >-
+      No exploitation, auth bypass, brute-force, or destructive requests.
+      Mapping and fingerprinting only.
+
+task:
+  goal: >-                          # required, non-empty
+    Map and fingerprint the application and its API; identify exposed
+    surfaces and misconfigurations. Mapping/fingerprinting only.
+  timeout_seconds: 14400            # >= 0 ; 0 means unlimited (emits a warning)
+  coverage_enabled: false           # bool
+  seed_first_intent: false          # bool
+  plan_heartbeat_seconds: 600       # 0 (= default) or >= 600
+
+runtime:
+  workers: 2                        # >= 1
+  llm_max_concurrent: 2             # >= 1
+  web_search_enabled: false         # bool
+
+llm:                                # the LOCAL model binding
+  provider: openai-compatible       # one of: openai, openai-compatible, anthropic, openai-responses, ollama
+  model: qwen-3.8                   # required, non-empty
+  base_url: ${env:ARTEX_LLM_BASE_URL}   # required; a literal URL or a secret ref
+  api_key: ${env:ARTEX_LLM_API_KEY}     # SECRET REF ONLY: ${env:VAR} or ${file:/path}; may be omitted when provider is ollama
+  max_tokens: 0                     # >= 0 ; 0 means model default
+
+admin:
+  username: ARTEX                   # fixed; informational only
+  password: ${env:SW_ADMIN_PASSWORD}    # SECRET REF ONLY: ${env:VAR} or ${file:/path}

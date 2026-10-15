@@ -1,13 +1,20 @@
 "use client";
 
-import { translate as swt } from "@/i18n/runtime";
-import { useI18n } from "@/i18n";
 import * as React from "react";
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, PauseIcon, PlayIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArrowLeftIcon,
+  BrainIcon,
+  CheckIcon,
+  CircleAlertIcon,
+  PackageIcon,
+  PauseIcon,
+  PlayIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
@@ -38,8 +45,11 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "@/i18n";
+import { translate as swt } from "@/i18n/runtime";
 import { api } from "@/lib/api";
-import type { LLMProfile, Task } from "@/lib/types";
+import { deliverableButtonState } from "@/lib/deliverable";
+import type { InstanceStatus, LLMProfile, Task } from "@/lib/types";
 
 import { AssetsTab } from "./_tabs/assets-tab";
 import { BroadcastTab } from "./_tabs/broadcast-tab";
@@ -53,16 +63,66 @@ import { RetestsTab } from "./_tabs/retests-tab";
 import { SessionsTab } from "./_tabs/sessions-tab";
 
 const TABS = [
-  { value: "sessions", get label() { return swt("interface.m0779"); } },
-  { value: "overview", get label() { return swt("interface.m0147"); } },
-  { value: "graph", get label() { return swt("interface.m0780"); } },
-  { value: "broadcast", get label() { return swt("interface.m0781"); } },
-  { value: "findings", get label() { return swt("interface.m0188"); } },
-  { value: "retests", get label() { return swt("interface.m0332"); } },
-  { value: "assets", get label() { return swt("interface.m0510"); } },
-  { value: "coverage", get label() { return swt("interface.m0782"); } },
-  { value: "intercept", get label() { return swt("interface.m0783"); } },
-  { value: "report", get label() { return swt("interface.m0784"); } },
+  {
+    value: "sessions",
+    get label() {
+      return swt("interface.m0779");
+    },
+  },
+  {
+    value: "overview",
+    get label() {
+      return swt("interface.m0147");
+    },
+  },
+  {
+    value: "graph",
+    get label() {
+      return swt("interface.m0780");
+    },
+  },
+  {
+    value: "broadcast",
+    get label() {
+      return swt("interface.m0781");
+    },
+  },
+  {
+    value: "findings",
+    get label() {
+      return swt("interface.m0188");
+    },
+  },
+  {
+    value: "retests",
+    get label() {
+      return swt("interface.m0332");
+    },
+  },
+  {
+    value: "assets",
+    get label() {
+      return swt("interface.m0510");
+    },
+  },
+  {
+    value: "coverage",
+    get label() {
+      return swt("interface.m0782");
+    },
+  },
+  {
+    value: "intercept",
+    get label() {
+      return swt("interface.m0783");
+    },
+  },
+  {
+    value: "report",
+    get label() {
+      return swt("interface.m0784");
+    },
+  },
 ];
 
 function taskProfileIDs(task: Task): string[] {
@@ -101,7 +161,11 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
     : (activeProfile?.name ?? (activeID ? swt("interface.m0786", { p0: activeID }) : swt("interface.m0787")));
   const activeIndex = chain.indexOf(activeID);
   const backupCount = activeIndex >= 0 ? Math.max(0, chain.length - activeIndex - 1) : 0;
-  const currentTitle = [currentLabel, activeProfile?.model, backupCount > 0 ? swt("interface.m0788", { p0: backupCount }) : ""]
+  const currentTitle = [
+    currentLabel,
+    activeProfile?.model,
+    backupCount > 0 ? swt("interface.m0788", { p0: backupCount }) : "",
+  ]
     .filter(Boolean)
     .join(" · ");
   let editorDescription = swt("interface.m0789");
@@ -176,9 +240,7 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
           <Alert variant="destructive">
             <CircleAlertIcon />
             <AlertTitle>{swt("interface.m0797")}</AlertTitle>
-            <AlertDescription>
-              {task.llm_failover_reason ?? swt("interface.m0798")}
-            </AlertDescription>
+            <AlertDescription>{task.llm_failover_reason ?? swt("interface.m0798")}</AlertDescription>
           </Alert>
         )}
 
@@ -195,7 +257,8 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
-            {swt("interface.m0211")}</Button>
+            {swt("interface.m0211")}
+          </Button>
           <Button type="button" size="sm" onClick={save} disabled={saving}>
             {saving && <Spinner data-icon="inline-start" />}
             {saveLabel}
@@ -220,6 +283,8 @@ function TaskDetailInner() {
   const [interceptPendingCount, setInterceptPendingCount] = React.useState(0);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
+  const [instanceStatus, setInstanceStatus] = React.useState<InstanceStatus | null>(null);
+  const [exporting, setExporting] = React.useState(false);
 
   React.useEffect(() => {
     api
@@ -282,6 +347,30 @@ function TaskDetailInner() {
     return () => clearInterval(timer);
   }, [load]);
 
+  // The deliverable belongs to the blueprint instance's own task; refresh the
+  // instance status when the task id or its status changes (task terminal etc.).
+  React.useEffect(() => {
+    if (!id) return;
+    void task?.status; // re-run when the task reaches a terminal state
+    api
+      .instanceStatus()
+      .then(setInstanceStatus)
+      .catch(() => setInstanceStatus(null));
+  }, [id, task?.status]);
+
+  async function exportDeliverable() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await api.exportDeliverable();
+      toast.success(swt("interface.m2885", { p0: result.dir }));
+    } catch (error) {
+      toast.error(swt("interface.m2886", { p0: (error as Error).message }));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function togglePause() {
     if (task && ["done", "failed", "timeout"].includes(task.status)) return;
     const next = !paused;
@@ -314,7 +403,8 @@ function TaskDetailInner() {
         {loaded && (
           <Button asChild variant="outline">
             <Link href="/function/tasks">
-              <ArrowLeftIcon /> {swt("interface.m0805")}</Link>
+              <ArrowLeftIcon /> {swt("interface.m0805")}
+            </Link>
           </Button>
         )}
       </div>
@@ -352,6 +442,24 @@ function TaskDetailInner() {
       {archiving ? <Spinner /> : <ArchiveIcon />}
     </Button>
   );
+  const deliverableState = deliverableButtonState(instanceStatus, task.id);
+  const deliverableTooltip = deliverableState === "waiting" ? swt("interface.m2884") : swt("interface.m2883");
+  const deliverableTrigger = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={deliverableState === "waiting" || exporting}
+          aria-label={deliverableTooltip}
+          onClick={() => void exportDeliverable()}
+        >
+          {exporting ? <Spinner /> : <PackageIcon />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{deliverableTooltip}</TooltipContent>
+    </Tooltip>
+  );
 
   return (
     <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col gap-0">
@@ -378,9 +486,11 @@ function TaskDetailInner() {
               <AlertDialogTrigger asChild>{archiveTrigger}</AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>{swt("interface.m0813")}{task.id}？</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {swt("interface.m0814")}</AlertDialogDescription>
+                  <AlertDialogTitle>
+                    {swt("interface.m0813")}
+                    {task.id}？
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>{swt("interface.m0814")}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>{swt("interface.m0063")}</AlertDialogCancel>
@@ -396,6 +506,7 @@ function TaskDetailInner() {
               <TooltipContent>{archiveDisabledReason}</TooltipContent>
             </Tooltip>
           )}
+          {deliverableState !== "hidden" && deliverableTrigger}
           <Button size="sm" variant={controlVariant} onClick={togglePause} disabled={terminal}>
             {controlIcon}
             {controlLabel}

@@ -1,0 +1,36 @@
+# Many problems at once, to exercise error aggregation:
+# bad version, bad name, missing authorized_by + reference, end < start,
+# empty company, bad scope kind, bad constraint kind, empty goal,
+# negative timeout, bad heartbeat, workers < 1, empty llm.model,
+# inline api_key, inline password. (Also warns: no allow constraint.)
+version: 3
+name: "BAD NAME"
+authorization:
+  authorized_by: ""
+  window:
+    start: 2026-10-24
+    end: 2026-10-20
+  reference: ""
+company:
+  name: ""
+scope:
+  - { kind: website, value: "" }
+constraints:
+  - kind: perhaps
+    text: ""
+task:
+  goal: ""
+  timeout_seconds: -10
+  plan_heartbeat_seconds: 59
+runtime:
+  workers: 0
+  llm_max_concurrent: 0
+llm:
+  provider: ""
+  model: ""
+  base_url: ""
+  api_key: literal-key
+  max_tokens: -1
+admin:
+  username: ARTEX
+  password: plaintext-pass

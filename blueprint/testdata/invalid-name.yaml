@@ -1,0 +1,30 @@
+version: 1
+name: "Example_Com!"
+authorization:
+  authorized_by: "Jane Doe"
+  window:
+    start: 2026-10-20
+    end: 2026-10-24
+  reference: "ENG-123"
+company:
+  name: Example Corp
+scope:
+  - { kind: domain, value: example.com }
+constraints:
+  - kind: allow
+    text: Only test example.com.
+task:
+  goal: Map and fingerprint.
+  timeout_seconds: 14400
+  plan_heartbeat_seconds: 600
+runtime:
+  workers: 2
+  llm_max_concurrent: 2
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${env:ARTEX_LLM_API_KEY}
+admin:
+  username: ARTEX
+  password: ${env:SW_ADMIN_PASSWORD}
