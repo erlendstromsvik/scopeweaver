@@ -114,5 +114,36 @@ func init() {
 			Ko:     "%[1]s 레지스터 항목 추가 오류: %[2]v",
 			ZhHans: "追加寄存器条目 %[1]s：%[2]v",
 		},
+
+		"fetch NSM RSS feed: %w": {
+			En:     "fetch NSM RSS feed: %w",
+			Ko:     "NSM RSS 피드 가져오기 오류: %w",
+			ZhHans: "获取 NSM RSS 源：%w",
+		},
+		"NSM RSS feed returned HTTP %d": {
+			En:     "NSM RSS feed returned HTTP %d",
+			Ko:     "NSM RSS 피드가 HTTP %d을(를) 반환했습니다",
+			ZhHans: "NSM RSS 源返回 HTTP %d",
+		},
+		"fetch CISA KEV catalog: %w": {
+			En:     "fetch CISA KEV catalog: %w",
+			Ko:     "CISA KEV 카탈로그 가져오기 오류: %w",
+			ZhHans: "获取 CISA KEV 目录：%w",
+		},
+		"CISA KEV catalog returned HTTP %d": {
+			En:     "CISA KEV catalog returned HTTP %d",
+			Ko:     "CISA KEV 카탈로그가 HTTP %d을(를) 반환했습니다",
+			ZhHans: "CISA KEV 目录返回 HTTP %d",
+		},
+		"read CISA KEV snapshot %s: %w": {
+			En:     "read CISA KEV snapshot %s: %w",
+			Ko:     "CISA KEV 스냅샷 %[1]s 읽기 오류: %[2]w",
+			ZhHans: "读取 CISA KEV 快照 %[1]s：%[2]w",
+		},
+		"write CISA KEV snapshot %s: %w": {
+			En:     "write CISA KEV snapshot %s: %w",
+			Ko:     "CISA KEV 스냅샷 %[1]s 쓰기 오류: %[2]w",
+			ZhHans: "写入 CISA KEV 快照 %[1]s：%[2]w",
+		},
 	})
 }

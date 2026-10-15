@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const vendoredKEV = "../standards/sources/cisa-kev/known_exploited_vulnerabilities.2026-10-15.json"
+const vendoredKEV = "../standards/sources/cisa-kev/known_exploited_vulnerabilities.json"
 
 func TestParseKEVVendored(t *testing.T) {
 	b, err := os.ReadFile(vendoredKEV)

@@ -10,3 +10,9 @@
 # See docs/VERIFICATION.md ("Running database-backed tests").
 test-db:
 	./scripts/test-db.sh
+
+.PHONY: advisory-sync
+
+# Refresh the advisory register (NSM RSS) and the CISA KEV snapshot. Host-side; needs network.
+advisory-sync:
+	go run ./advisory/cmd/advisory-sync

@@ -36,7 +36,7 @@ CWE (Common Weakness Enumeration) 4.20
            CWE is a trademark of The MITRE Corporation. Redistributed with attribution.
 
 CISA Known Exploited Vulnerabilities (KEV) Catalog — snapshot
-  Files:   cisa-kev/known_exploited_vulnerabilities.2026-10-15.json
+  Files:   cisa-kev/known_exploited_vulnerabilities.json
   Source:  https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
   Status:  U.S. Government work; in the public domain in the United States
            (https://www.cisa.gov/known-exploited-vulnerabilities-catalog).
