@@ -58,7 +58,7 @@ runtime:
   web_search_enabled: false         # bool
 
 llm:                                # the LOCAL model binding
-  provider: openai-compatible       # required, non-empty
+  provider: openai-compatible       # one of: openai, openai-compatible, anthropic, openai-responses
   model: qwen-3.8                   # required, non-empty
   base_url: ${env:ARTEX_LLM_BASE_URL}   # required; a literal URL or a secret ref
   api_key: ${env:ARTEX_LLM_API_KEY}     # SECRET REF ONLY: ${env:VAR} or ${file:/path}

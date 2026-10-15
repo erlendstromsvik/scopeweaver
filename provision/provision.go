@@ -129,8 +129,10 @@ type ConstraintSpec struct {
 }
 
 // ProfileSpec is the LLM profile to persist, with secrets already resolved.
+// Format is the db wire format (db.llm_profiles.format), already translated from
+// the blueprint's llm.provider by [blueprint.ProviderFormat].
 type ProfileSpec struct {
-	Provider  string
+	Format    string
 	Model     string
 	BaseURL   string
 	APIKey    string
@@ -192,13 +194,21 @@ func BuildPlan(bp *blueprint.Blueprint, s Secrets) (*Plan, error) {
 		constraints[i] = ConstraintSpec{Kind: c.Kind, Text: c.Text}
 	}
 
+	// Translate the blueprint provider to the db wire format. A validated
+	// blueprint always resolves (Validate rejects unknown providers); guard
+	// anyway so BuildPlan is safe to call directly in tests.
+	format, ok := blueprint.ProviderFormat(bp.LLM.Provider)
+	if !ok {
+		return nil, fmt.Errorf("llm.provider %q has no known wire format", bp.LLM.Provider)
+	}
+
 	return &Plan{
 		CompanyName: bp.Company.Name,
 		CompanyLogo: bp.Company.Logo,
 		Scope:       scope,
 		Constraints: constraints,
 		Profile: ProfileSpec{
-			Provider:  bp.LLM.Provider,
+			Format:    format,
 			Model:     bp.LLM.Model,
 			BaseURL:   s.LLMBaseURL,
 			APIKey:    s.LLMAPIKey,

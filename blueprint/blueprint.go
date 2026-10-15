@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,7 +54,40 @@ var (
 
 	validScopeKinds      = map[string]bool{"domain": true, "ip": true, "cidr": true, "icp": true, "keyword": true}
 	validConstraintKinds = map[string]bool{"allow": true, "deny": true}
+
+	// providerFormats maps each accepted llm.provider to the ScopeWeaver wire
+	// "format" the database stores. db.llm_profiles.format has a CHECK of
+	// ('openai','anthropic','openai-responses'), so provider names that are not
+	// one of those must be translated. "openai-compatible" covers a local model
+	// served behind an OpenAI-compatible API and uses the "openai" format with a
+	// configurable base_url. The key set is exactly the accepted providers.
+	providerFormats = map[string]string{
+		"openai":            "openai",
+		"openai-compatible": "openai",
+		"anthropic":         "anthropic",
+		"openai-responses":  "openai-responses",
+	}
 )
+
+// ProviderFormat returns the database wire format for a blueprint llm.provider
+// and whether the provider is one the schema accepts. BuildPlan and the
+// validator share this single source of truth so they can never disagree about
+// which providers are valid.
+func ProviderFormat(provider string) (format string, ok bool) {
+	format, ok = providerFormats[strings.TrimSpace(provider)]
+	return format, ok
+}
+
+// allowedProvidersList returns the accepted llm.provider values, sorted, for
+// use in validation error messages.
+func allowedProvidersList() string {
+	ps := make([]string, 0, len(providerFormats))
+	for p := range providerFormats {
+		ps = append(ps, p)
+	}
+	sort.Strings(ps)
+	return strings.Join(ps, ", ")
+}
 
 // Blueprint is a parsed blueprint file. Authorization and its Window are
 // pointers so that a missing section can be told apart from an empty one.
@@ -264,6 +298,8 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 	// llm
 	if strings.TrimSpace(bp.LLM.Provider) == "" {
 		add("llm.provider: required")
+	} else if _, ok := ProviderFormat(bp.LLM.Provider); !ok {
+		add("llm.provider: unknown provider %q; allowed: %s", bp.LLM.Provider, allowedProvidersList())
 	}
 	if strings.TrimSpace(bp.LLM.Model) == "" {
 		add("llm.model: required")

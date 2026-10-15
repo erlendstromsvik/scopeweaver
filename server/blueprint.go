@@ -125,7 +125,7 @@ func (s *Server) ApplyBlueprint(bp *blueprint.Blueprint, plan *provision.Plan) e
 	if profileID == 0 {
 		id, err := pg.SaveProfile(&db.LLMProfile{
 			Name:      bp.Name,
-			Format:    plan.Profile.Provider, // the DB column is "format"
+			Format:    plan.Profile.Format, // already resolved from llm.provider
 			Model:     plan.Profile.Model,
 			BaseURL:   plan.Profile.BaseURL,
 			APIKey:    plan.Profile.APIKey,

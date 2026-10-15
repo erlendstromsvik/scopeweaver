@@ -210,9 +210,9 @@ func TestBuildPlan(t *testing.T) {
 		}
 	}
 
-	// Profile (with resolved secrets).
+	// Profile (with resolved secrets). provider "openai" maps to format "openai".
 	wantProfile := ProfileSpec{
-		Provider:  "openai",
+		Format:    "openai",
 		Model:     "local-model",
 		BaseURL:   "http://localhost:1234/v1",
 		APIKey:    "the-api-key",
@@ -256,5 +256,40 @@ func TestBuildPlan(t *testing.T) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(plan.AdminPasswordHash), []byte("wrong")); err == nil {
 		t.Error("admin hash verified against a wrong password")
+	}
+}
+
+func TestBuildPlanProviderFormat(t *testing.T) {
+	cases := []struct {
+		name       string
+		provider   string
+		wantFormat string
+		wantErr    bool
+	}{
+		{"openai", "openai", "openai", false},
+		{"openai-compatible maps to openai", "openai-compatible", "openai", false},
+		{"anthropic", "anthropic", "anthropic", false},
+		{"openai-responses", "openai-responses", "openai-responses", false},
+		{"empty", "", "", true},
+		{"unknown", "gpt-foo", "", true},
+		{"case-sensitive", "OpenAI", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bp := &blueprint.Blueprint{LLM: blueprint.LLM{Provider: tc.provider}}
+			plan, err := BuildPlan(bp, Secrets{})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("BuildPlan(provider=%q): want error, got format %q", tc.provider, plan.Profile.Format)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BuildPlan(provider=%q): %v", tc.provider, err)
+			}
+			if plan.Profile.Format != tc.wantFormat {
+				t.Errorf("provider %q -> format %q, want %q", tc.provider, plan.Profile.Format, tc.wantFormat)
+			}
+		})
 	}
 }
