@@ -107,6 +107,10 @@ func (s *Server) SetDeliverableDir(dir string) {
 // is on disk — an observer sees a complete bundle or nothing. On any error
 // the temp dir is removed. The target name must not already exist: two
 // exports in the same second are refused rather than merged.
+//
+// Bundle files: findings.md, findings.csv, findings-evidence.zip,
+// assets.csv, task-archive.tar.zst (a copy-only snapshot of the task's full
+// archive; the live task is left intact), then manifest.json.
 func (s *Server) writeDeliverable(ctx context.Context, now time.Time) (string, deliverableManifest, error) {
 	if s.deliverableDir == "" {
 		return "", deliverableManifest{}, errDeliverableNoDir
@@ -199,6 +203,18 @@ func (s *Server) writeDeliverable(ctx context.Context, now time.Time) (string, d
 	if err := write("assets.csv", report.AssetsCSV(assets, lang)); err != nil {
 		return "", deliverableManifest{}, err
 	}
+
+	// Full task archive (same tar.zst format as the task-archive feature),
+	// snapshotted copy-only so the live task is untouched and stays restorable.
+	archiveName := "task-archive.tar.zst"
+	if err := s.snapshotTaskArchive(ctx, taskID, filepath.Join(tmp, archiveName)); err != nil {
+		return "", deliverableManifest{}, err
+	}
+	archiveSum, archiveSize, err := hashFile(filepath.Join(tmp, archiveName))
+	if err != nil {
+		return "", deliverableManifest{}, err
+	}
+	files = append(files, deliverableFile{Name: archiveName, Size: archiveSize, SHA256: archiveSum})
 
 	m := deliverableManifest{
 		Instance:  deliverableInstanceID(st.Blueprint),

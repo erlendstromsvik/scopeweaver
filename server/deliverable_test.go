@@ -98,7 +98,7 @@ func deliverableFixture(t *testing.T) (*Server, func(method, path, body string) 
 }
 
 func TestDeliverableBundleContents(t *testing.T) {
-	_, request, dir, taskID, findingName := deliverableFixture(t)
+	s, request, dir, taskID, findingName := deliverableFixture(t)
 
 	w := request("POST", "/api/instance/deliverable", "")
 	if w.Code != 200 {
@@ -120,7 +120,7 @@ func TestDeliverableBundleContents(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339, resp.Manifest.CreatedAt); err != nil {
 		t.Fatalf("created_at not RFC3339: %q (%v)", resp.Manifest.CreatedAt, err)
 	}
-	wantNames := []string{"findings.md", "findings.csv", "findings-evidence.zip", "assets.csv"}
+	wantNames := []string{"findings.md", "findings.csv", "findings-evidence.zip", "assets.csv", "task-archive.tar.zst"}
 	if len(resp.Manifest.Files) != len(wantNames) {
 		t.Fatalf("manifest files = %d, want %d: %+v", len(resp.Manifest.Files), len(wantNames), resp.Manifest.Files)
 	}
@@ -130,15 +130,15 @@ func TestDeliverableBundleContents(t *testing.T) {
 		}
 	}
 
-	// The bundle dir exists with exactly the 5 files; every manifest entry
+	// The bundle dir exists with exactly the 6 files; every manifest entry
 	// matches the file on disk (size + sha256).
 	bundle := filepath.Join(dir, resp.Dir)
 	entries, err := os.ReadDir(bundle)
 	if err != nil {
 		t.Fatalf("bundle dir: %v", err)
 	}
-	if len(entries) != 5 {
-		t.Fatalf("bundle has %d entries, want 5: %v", len(entries), entries)
+	if len(entries) != 6 {
+		t.Fatalf("bundle has %d entries, want 6: %v", len(entries), entries)
 	}
 	for _, f := range resp.Manifest.Files {
 		data, err := os.ReadFile(filepath.Join(bundle, f.Name))
@@ -160,6 +160,14 @@ func TestDeliverableBundleContents(t *testing.T) {
 	}
 	if !strings.Contains(string(csvData), findingName) {
 		t.Errorf("findings.csv missing finding name %q", findingName)
+	}
+	// The task archive is a copy: the live task still exists after the export.
+	after, err := s.m.PG().GetTask(taskID)
+	if err != nil {
+		t.Fatalf("GetTask after export: %v", err)
+	}
+	if after == nil {
+		t.Fatalf("task %d vanished after deliverable export", taskID)
 	}
 	// No partial dirs left behind.
 	assertNoPartials(t, dir)
@@ -196,8 +204,8 @@ func TestDeliverableSecondRunFreshDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bundle %s: %v", d, err)
 		}
-		if len(entries) != 5 {
-			t.Errorf("bundle %s has %d entries, want 5", d, len(entries))
+		if len(entries) != 6 {
+			t.Errorf("bundle %s has %d entries, want 6", d, len(entries))
 		}
 	}
 	assertNoPartials(t, dir)
