@@ -656,6 +656,9 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		t.searchAllWorkerTraces(), t.getWorkerTrace(),
 		// node_detail fetches full details once the worker knows an intent/node ID.
 		t.nodeDetail(),
+		// record_control_result records a verdict for one standard requirement;
+		// workers only (not mainagent/auto/pentest). not_tested is system-only.
+		t.recordControlResult(),
 		// Keep list_facts/list_companies/list_worker_traces with planner/main: workers
 		// execute and record one intent, while broader context review belongs to planning.
 	}

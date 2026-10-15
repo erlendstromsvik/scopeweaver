@@ -204,6 +204,12 @@ func (d *DB) UpsertControlResult(in ControlResultInput) (int64, error) {
 	return id, nil
 }
 
+// UpsertControlResult on the exploration store forwards to the underlying DB so
+// a task-bound ExplorationStore (ToolSet.ts) satisfies agent.ControlResultWriter.
+func (s *ExplorationStore) UpsertControlResult(in ControlResultInput) (int64, error) {
+	return s.db.UpsertControlResult(in)
+}
+
 // ListControlResults returns every control result for a task, ordered by standard
 // then requirement id.
 func (d *DB) ListControlResults(taskID int64) ([]*ControlResult, error) {

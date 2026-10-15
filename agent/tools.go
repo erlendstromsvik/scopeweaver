@@ -55,8 +55,9 @@ func compactIntents(ns []*db.Node, parentsOf, yieldsOf map[int64][]int64) []map[
 type ToolSet struct {
 	language        locale.Lang
 	findingRecorder FindingRecorder
-	as              *db.AssetStore   // asset store (optional; nil = asset tools not available)
-	cs              *db.CompanyStore // company store (optional)
+	controlWriter   ControlResultWriter // record_control_result persistence; tests inject a fake
+	as              *db.AssetStore      // asset store (optional; nil = asset tools not available)
+	cs              *db.CompanyStore    // company store (optional)
 	ts              *db.ExplorationStore
 	worker          string
 	taskID          int64 // PG tasks.id; 0 when unknown (tests / orchestrator cross-task reads)
