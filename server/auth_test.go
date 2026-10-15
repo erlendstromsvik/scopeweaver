@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -29,8 +29,8 @@ func backportTestDatabaseAllowed(dsn string) bool {
 
 func backportTestManager(t *testing.T) *Manager {
 	t.Helper()
-	if !backportTestDatabaseAllowed(os.Getenv("ARTEX_PG_DSN")) {
-		t.Skip("requires an explicit ARTEX_PG_DSN with database name scopeweaver_test_* or scopeweaver_adapter_*")
+	if !backportTestDatabaseAllowed(dbtest.DSN(t)) {
+		t.Skip("requires an explicit ARTEX_TEST_DSN with database name scopeweaver_test_* or scopeweaver_adapter_*")
 	}
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

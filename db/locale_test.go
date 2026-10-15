@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -151,9 +150,6 @@ func TestRetestInitialMessageLanguagePreservesNotes(t *testing.T) {
 
 func TestSeedLocalizationPreservesCustomization(t *testing.T) {
 	// This integration test uses only the explicitly supplied test database.
-	if os.Getenv("ARTEX_PG_DSN") == "" {
-		t.Skip("explicit isolated database required")
-	}
 	d, err := Open(testDSN(t))
 	if err != nil {
 		t.Fatal(err)

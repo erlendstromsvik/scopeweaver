@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/notify"
 )
 
@@ -219,6 +220,7 @@ WHERE channel_id=$1 AND state=$2`, chID, db.NotifyStatePending); err != nil {
 // Invoke the stale notifier's channel-specific callback directly to force the
 // competing-consumer interleaving without waiting for its three-second ticker.
 func TestMgmtFixtureStopsNotifierBeforeNextTest(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	var expired *Server
 	t.Run("completed management fixture", func(t *testing.T) {
 		expired = newMgmtFixture(t)

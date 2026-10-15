@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/locale"
 )
 
@@ -101,10 +102,7 @@ func TestOperationsSyncParseErrorsUseRequestLanguage(t *testing.T) {
 }
 
 func TestOperationsCustomToolValidationHTTP(t *testing.T) {
-	dsn := os.Getenv("ARTEX_PG_DSN")
-	if dsn == "" {
-		t.Skip("explicit isolated database required")
-	}
+	dsn := dbtest.DSN(t)
 	pg, err := db.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

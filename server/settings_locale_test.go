@@ -1,14 +1,17 @@
 package server
 
 import (
-	"github.com/Autumn-27/artex/locale"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Autumn-27/artex/internal/dbtest"
+	"github.com/Autumn-27/artex/locale"
 )
 
 func TestChineseSettingsPersistenceAndValidation(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	old := locale.ServerDefault()
 	defer locale.SetServerDefault(old)
 	m, err := NewManager(t.TempDir(), "")

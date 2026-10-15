@@ -37,7 +37,7 @@ jobs:
       - name: Test adapter against real backend
         env:
           SCOPEWEAVER_ADAPTER_E2E: "1"
-          ARTEX_PG_DSN: postgres://scopeweaver_test:test_only_password@localhost:5432/scopeweaver_adapter_e2e?sslmode=disable
+          ARTEX_TEST_DSN: postgres://scopeweaver_test:test_only_password@localhost:5432/scopeweaver_adapter_e2e?sslmode=disable
         run: go test ./server -run '^TestAgentAdapterE2E$' -count=1 -v
   frontend:
     runs-on: ubuntu-latest
@@ -144,7 +144,7 @@ jobs:
             database="scopeweaver_test_${index}"
             createdb "$database"
             ARTEX_PG_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" "$RUNNER_TEMP/init-test-db"
-            if ! ARTEX_PG_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" go test -p 1 "$package" -count=1; then
+            if ! ARTEX_TEST_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" go test -p 1 "$package" -count=1; then
               status=1
             fi
             dropdb --force "$database"

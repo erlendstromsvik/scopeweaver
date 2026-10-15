@@ -3,10 +3,10 @@ package llmrec
 import (
 	"context"
 	"iter"
-	"os"
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 	"github.com/google/uuid"
@@ -83,10 +83,7 @@ func (meteredStreamProvider) Stream(context.Context, llm.CompletionRequest) iter
 }
 
 func TestSideUsageRecordedOnceOnConsumerCancellation(t *testing.T) {
-	dsn := os.Getenv("ARTEX_PG_DSN")
-	if dsn == "" {
-		t.Skip("requires isolated ARTEX_PG_DSN")
-	}
+	dsn := dbtest.DSN(t)
 	pg, err := db.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

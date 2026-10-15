@@ -17,6 +17,7 @@ import (
 
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 )
 
@@ -92,6 +93,7 @@ func TestOllamaSharedEndpointAdmission(t *testing.T) {
 	}
 }
 func TestOllamaKeylessProfileAvailabilityAndPolicy(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +136,7 @@ func TestOllamaKeylessProfileAvailabilityAndPolicy(t *testing.T) {
 }
 
 func TestOllamaKeylessActivationTaskBindingFailoverAndWarm(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -299,6 +302,7 @@ func TestOllamaDiagnosticSharesWorkerAdmission(t *testing.T) {
 }
 
 func TestOllamaSettingsDoNotPersistEnvironmentCIDRs(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -356,6 +360,7 @@ func TestOllamaSettingsDoNotPersistEnvironmentCIDRs(t *testing.T) {
 }
 
 func TestDeepSeekSearchProbeRespectsLiveLocalOnlyPolicy(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)

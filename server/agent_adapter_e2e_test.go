@@ -22,6 +22,7 @@ func TestAgentAdapterE2E(t *testing.T) {
 		t.Skip("opt in with SCOPEWEAVER_ADAPTER_E2E=1 and a disposable scopeweaver_adapter_* database")
 	}
 	// Fail closed: never initialize/migrate the caller's normal application database.
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	config, err := pgx.ParseConfig(os.Getenv("ARTEX_PG_DSN"))
 	if err != nil || !strings.HasPrefix(config.Database, "scopeweaver_adapter_") {
 		t.Fatal("ARTEX_PG_DSN must explicitly select a disposable scopeweaver_adapter_* database")
@@ -29,7 +30,6 @@ func TestAgentAdapterE2E(t *testing.T) {
 	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ARTEX_LLM_PROVIDER"} {
 		t.Setenv(key, "")
 	}
-	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
