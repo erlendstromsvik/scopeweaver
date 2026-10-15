@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/artex/standards"
 	"gopkg.in/yaml.v3"
 )
 
@@ -103,6 +104,11 @@ type Blueprint struct {
 	Runtime       Runtime        `yaml:"runtime"`
 	LLM           LLM            `yaml:"llm"`
 	Admin         Admin          `yaml:"admin"`
+	// Standards names test profiles (see standards/profiles.yaml) whose
+	// requirements provisioning seeds as not_tested control results so
+	// coverage is visible from the first boot (E.4). Optional; each name
+	// must be a known profile.
+	Standards []string `yaml:"standards"`
 }
 
 // Authorization records who authorized the engagement and when it is valid.
@@ -327,6 +333,14 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 		add("admin.password: inline secret not allowed; use ${env:VAR} or ${file:/path}")
 	}
 
+	// standards (optional): every name must be a known test profile.
+	for i, s := range bp.Standards {
+		if !standardsProfileAllowed(s) {
+			add("standards[%d]: unknown profile %q; allowed: %s", i, s,
+				strings.Join(standards.ProfileNames(), ", "))
+		}
+	}
+
 	// warnings (non-fatal)
 	if !hasAllowConstraint(bp.Constraints) {
 		warnings = append(warnings, "no 'allow' constraint: scope will not act as an allowlist")
@@ -359,6 +373,17 @@ func parseDate(value, field string, add func(string, ...any)) (t time.Time, ok b
 func hasAllowConstraint(cs []Constraint) bool {
 	for _, c := range cs {
 		if c.Kind == "allow" {
+			return true
+		}
+	}
+	return false
+}
+
+// standardsProfileAllowed reports whether name is one of the embedded test
+// profiles (standards/profiles.yaml).
+func standardsProfileAllowed(name string) bool {
+	for _, n := range standards.ProfileNames() {
+		if n == name {
 			return true
 		}
 	}

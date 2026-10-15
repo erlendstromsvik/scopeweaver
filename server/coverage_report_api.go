@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Autumn-27/artex/db"
@@ -14,8 +15,10 @@ import (
 
 // coverageReport renders a task's standards coverage report as Markdown, JSON or
 // CSV. The catalog is the embedded standards set; the verdicts are the task's
-// control_results rows. The scope is ASVS up to ?asvs_level (default 2) plus all
-// WSTG tests; E.4 will take the scope from the blueprint instead.
+// control_results rows. The scope is ASVS up to ?asvs_level (default 2) plus
+// all WSTG tests. With no asvs_level param, a blueprint-provisioned instance
+// takes the scope from its own test profiles (E.4); an explicit asvs_level
+// always wins.
 //
 //	format = md (default) | json | csv
 //	asvs_level = 1..3 (default 2)
@@ -34,10 +37,19 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asvsLevel := 2
-	if raw := r.URL.Query().Get("asvs_level"); raw != "" {
-		level, err := strconv.Atoi(raw)
+	wstgInScope := true
+	rawLevel := r.URL.Query().Get("asvs_level")
+	if rawLevel == "" {
+		// No explicit level: a blueprint-provisioned instance reports the
+		// scope of its own test profiles (E.4).
+		if names, ok := blueprintStandards(s); ok {
+			asvsLevel = standards.ProfilesMaxASVSLevel(names)
+			wstgInScope = standards.ProfilesIncludeWSTG(names)
+		}
+	} else {
+		level, err := strconv.Atoi(rawLevel)
 		if err != nil || level < 1 || level > 3 {
-			writeErr(w, 400, locale.Text(responseLanguage(w), "bad asvs_level: ")+raw)
+			writeErr(w, 400, locale.Text(responseLanguage(w), "bad asvs_level: ")+rawLevel)
 			return
 		}
 		asvsLevel = level
@@ -53,12 +65,15 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
+	scope := []report.CoverageScope{
+		{Standard: db.StandardASVS, MaxLevel: asvsLevel},
+	}
+	if wstgInScope {
+		scope = append(scope, report.CoverageScope{Standard: db.StandardWSTG})
+	}
 	in := report.CoverageInput{
 		Catalog: catalog,
-		Scope: []report.CoverageScope{
-			{Standard: db.StandardASVS, MaxLevel: asvsLevel},
-			{Standard: db.StandardWSTG},
-		},
+		Scope:   scope,
 		Results: results,
 	}
 
@@ -108,4 +123,20 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 		setDownload("text/markdown; charset=utf-8", "md")
 		_, _ = w.Write([]byte(report.CoverageMarkdown(in, now, locale.FromRequest(r))))
 	}
+}
+
+// blueprintStandards reads the test-profile names recorded by blueprint
+// provisioning (E.4). ok is false when the instance was not provisioned from
+// a blueprint with standards, so the caller keeps its default scope.
+func blueprintStandards(s *Server) (names []string, ok bool) {
+	raw, found, err := s.m.pg.GetSetting("blueprint.standards")
+	if err != nil || !found {
+		return nil, false
+	}
+	for _, n := range strings.Split(raw, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, n)
+		}
+	}
+	return names, len(names) > 0
 }

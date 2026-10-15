@@ -2,11 +2,14 @@ package server
 
 import (
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/Autumn-27/artex/blueprint"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/Autumn-27/artex/provision"
+	"github.com/Autumn-27/artex/standards"
 )
 
 // blueprintProvisionedKey is the settings row that marks a database as already
@@ -159,6 +162,41 @@ func (s *Server) ApplyBlueprint(bp *blueprint.Blueprint, plan *provision.Plan) e
 	// watcher (D.3) can locate the blueprint's task without the UI.
 	if err := pg.SetSetting(blueprintTaskIDKey, task.ID); err != nil {
 		return locale.Errorf("blueprint provisioning: record task id: %w", err)
+	}
+
+	// 6b. Standards coverage seed. Every requirement the blueprint's test
+	// profiles select becomes a not_tested control result owned by the
+	// system, so coverage is visible from the first boot. Requirements the
+	// profiles flag as not automatable carry their reason.
+	if len(plan.Standards) > 0 {
+		taskID, err := strconv.ParseInt(task.ID, 10, 64)
+		if err != nil {
+			return locale.Errorf("blueprint provisioning: parse task id: %w", err)
+		}
+		if err := pg.SetSetting("blueprint.standards", strings.Join(plan.Standards, ",")); err != nil {
+			return locale.Errorf("blueprint provisioning: record standards: %w", err)
+		}
+		catalog, err := standards.Embedded()
+		if err != nil {
+			return locale.Errorf("blueprint provisioning: load standards catalog: %w", err)
+		}
+		reqs, err := catalog.SelectRequirements(plan.Standards)
+		if err != nil {
+			return locale.Errorf("blueprint provisioning: select standards requirements: %w", err)
+		}
+		for _, req := range reqs {
+			if _, err := pg.UpsertControlResult(db.ControlResultInput{
+				TaskID:        taskID,
+				Standard:      req.Standard,
+				RequirementID: req.ID,
+				Verdict:       db.VerdictNotTested,
+				Actor:         "system",
+				Reason:        req.NotAutomatableReason,
+			}); err != nil {
+				return locale.Errorf("blueprint provisioning: seed control result %s/%s: %w",
+					req.Standard, req.ID, err)
+			}
+		}
 	}
 
 	// 7. Operation constraints, authored by the system (the blueprint).

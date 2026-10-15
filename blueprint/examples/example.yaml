@@ -57,6 +57,12 @@ runtime:
   llm_max_concurrent: 2             # >= 1
   web_search_enabled: false         # bool
 
+# standards: names test profiles whose requirements are seeded as
+# not_tested control results at provisioning, so coverage is visible from
+# the first boot. Optional; omit for no seeded coverage. Each name must be a
+# profile in standards/profiles.yaml (asvs-l1-web, asvs-l2-web, asvs-l2-api).
+# standards: [asvs-l2-web]
+
 llm:                                # the LOCAL model binding
   provider: openai-compatible       # one of: openai, openai-compatible, anthropic, openai-responses, ollama
   model: qwen-3.8                   # required, non-empty

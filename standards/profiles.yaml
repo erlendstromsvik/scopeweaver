@@ -1,0 +1,36 @@
+# Test profiles (roadmap E.4). A profile names a slice of the standards
+# catalog that a blueprint can ask ScopeWeaver to cover. Provisioning seeds
+# every requirement the selected profiles select as a `not_tested` control
+# result, so coverage is visible from the first boot.
+#
+# profiles:
+#   <name>:
+#     asvs_max_level: 1|2|3   # ASVS requirements with Level <= this value
+#     wstg: true              # include the WSTG tests
+#     wstg_exclude_prefixes:  # WSTG test ids to leave out (prefix match)
+#       - "WSTG-CLNT-"
+#
+# not_automatable:
+#   - match:  <regex, applied to the ASVS requirement description>
+#     reason: <shown on the seeded not_tested row>
+#
+# The not_automatable rules are a heuristic meant to be refined: they flag
+# requirements whose wording points at documentation review, which no
+# scanner can settle. A match only attaches a reason to the seeded row; it
+# never removes a requirement from scope.
+profiles:
+  asvs-l1-web:
+    asvs_max_level: 1
+    wstg: true
+  asvs-l2-web:
+    asvs_max_level: 2
+    wstg: true
+  asvs-l2-api:
+    asvs_max_level: 2
+    wstg: true
+    wstg_exclude_prefixes:
+      - "WSTG-CLNT-"
+
+not_automatable:
+  - match: "(?i)application's documentation|\\bdocumentation\\b|\\bis documented\\b|\\bare documented\\b"
+    reason: "Requires documentation review; not checked by automation."

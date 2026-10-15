@@ -171,6 +171,9 @@ type Plan struct {
 	Profile     ProfileSpec
 	Task        TaskSpec
 	Settings    SettingsSpec
+	// Standards are the blueprint's test-profile names; phase 2b seeds the
+	// requirements they select as not_tested control results (E.4).
+	Standards []string
 
 	AdminUsername     string
 	AdminPasswordHash string // bcrypt hash of the resolved admin password
@@ -211,6 +214,7 @@ func BuildPlan(bp *blueprint.Blueprint, s Secrets) (*Plan, error) {
 		CompanyLogo: bp.Company.Logo,
 		Scope:       scope,
 		Constraints: constraints,
+		Standards:   append([]string(nil), bp.Standards...),
 		Profile: ProfileSpec{
 			Format:    format,
 			Model:     bp.LLM.Model,
