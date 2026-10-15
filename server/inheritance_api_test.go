@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 func TestInheritedActivityDetailAndRelationDeletion(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)

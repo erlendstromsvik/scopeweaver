@@ -44,8 +44,13 @@ English and Korean, even when adding another language.
 These match the CI jobs in [.github/workflows/ci.yml](.github/workflows/ci.yml):
 
 ```bash
-# backend: every Go package (set ARTEX_PG_DSN to a disposable scopeweaver_test_* database)
-go test ./... -count=1
+# backend database-backed suites (db, server, agent): against a throwaway database
+# that is created and dropped for you. They require ARTEX_TEST_DSN and skip (never
+# fall back to the live DSN) without it — see docs/VERIFICATION.md.
+make test-db
+
+# backend: every Go package (set ARTEX_TEST_DSN to a disposable scopeweaver_test_* database)
+ARTEX_TEST_DSN=postgres://sw_user_test@/scopeweaver_test_1?host=/tmp&sslmode=disable go test ./... -count=1
 
 # frontend
 cd web && npm ci && npm test && npm run build:static

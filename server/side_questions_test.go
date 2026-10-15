@@ -16,6 +16,7 @@ import (
 
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/Autumn-27/artex/sidequestion"
 	"github.com/Autumn-27/norma/harness"
@@ -141,6 +142,7 @@ type sideHTTPFixture struct {
 
 func newSideHTTPFixture(t *testing.T) *sideHTTPFixture {
 	t.Helper()
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)

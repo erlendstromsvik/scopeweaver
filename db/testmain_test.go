@@ -1,32 +1,17 @@
 package db
 
 import (
-	"database/sql"
 	"os"
 	"testing"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
-// TestMain acquires a PostgreSQL advisory lock (7337741002) for the entire
-// db test suite. Packages agent and server hold the same lock, so parallel
-// `go test ./...` runs serialize across packages on the shared dev DB and
-// avoid cross-package cleanup races (e.g. DELETE FROM assets WHERE id > X
-// from one package deleting assets created by another).
+// TestMain routes the db test suite through dbtest.Main, which refuses to run
+// against the live database, skips when ARTEX_TEST_DSN is unset, and otherwise
+// points every DSN resolver at the throwaway test database and holds the shared
+// advisory lock (7337741002) so `go test ./...` serializes cross-package cleanup
+// with the server and agent suites.
 func TestMain(m *testing.M) {
-	dsn, _, err := DSN()
-	if err != nil {
-		// No DB configured — tests that need PG will skip themselves.
-		os.Exit(m.Run())
-	}
-	conn, err := sql.Open("pgx", dsn)
-	if err != nil || conn.Ping() != nil {
-		os.Exit(m.Run())
-	}
-	defer conn.Close()
-	if _, err := conn.Exec(`SELECT pg_advisory_lock(7337741002)`); err != nil {
-		os.Exit(m.Run())
-	}
-	defer conn.Exec(`SELECT pg_advisory_unlock(7337741002)`) //nolint:errcheck
-	os.Exit(m.Run())
+	os.Exit(dbtest.Main(m))
 }

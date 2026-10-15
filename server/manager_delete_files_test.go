@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	pgdb "github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/traffic"
 )
 
 func TestSeedAssociatesTargetAssetWithTask(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
@@ -172,6 +174,7 @@ func TestStageTaskFilesRollbackReportsRestoreFailure(t *testing.T) {
 
 func TestManagerDeleteTaskRestoresFilesAndTrafficWhenPostgresDeleteFails(t *testing.T) {
 	dataDir := t.TempDir()
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(dataDir, "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)

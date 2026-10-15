@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 )
 
@@ -138,6 +139,7 @@ func TestConcurrencyProviderHonorsContextCancel(t *testing.T) {
 // TestLLMMaxConcurrentRoundtrip verifies the settings accessors persist and read back
 // the cap, including the unlimited (0) default and invalid-value fallback.
 func TestLLMMaxConcurrentRoundtrip(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("no database available: %v", err)
@@ -177,6 +179,7 @@ func TestLLMMaxConcurrentRoundtrip(t *testing.T) {
 // TestNewConcurrencyProviderPassthrough verifies newConcurrencyProvider returns the
 // inner provider unchanged when the cap is 0 (unlimited), and wraps it when > 0.
 func TestNewConcurrencyProviderPassthrough(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("no database available: %v", err)

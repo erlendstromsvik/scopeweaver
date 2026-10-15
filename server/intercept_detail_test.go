@@ -10,13 +10,11 @@ import (
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 func TestInterceptDetailHTTP(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("no test database configured")
-	}
+	dsn := dbtest.DSN(t)
 	d, err := db.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

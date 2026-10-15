@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -28,6 +29,7 @@ func TestAgentAdapterE2E(t *testing.T) {
 	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ARTEX_LLM_PROVIDER"} {
 		t.Setenv(key, "")
 	}
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)

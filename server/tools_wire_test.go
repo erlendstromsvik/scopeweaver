@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
+	actool "github.com/Autumn-27/norma/tool"
 )
 
 func names(tools []actool.CoreTool) map[string]actool.CoreTool {
@@ -22,10 +23,7 @@ func names(tools []actool.CoreTool) map[string]actool.CoreTool {
 // catalog, ToolResolve keeps record_fact for worker but drops it for planner (not
 // bound), and an edited description + injected default flow through.
 func TestWireTools(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
-	}
+	dsn := dbtest.DSN(t)
 	pg, err := db.Open(dsn)
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)

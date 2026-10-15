@@ -10,6 +10,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/tool"
 )
@@ -17,10 +18,7 @@ import (
 // Real PostgreSQL + SDK hooks: Worker reviews receive the current call only.
 // Intent summaries, inherited background and prior execution are excluded.
 func TestWorkerReviewContextAcrossToolCalls(t *testing.T) {
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("no test database configured")
-	}
+	dsn := dbtest.DSN(t)
 	d, err := db.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

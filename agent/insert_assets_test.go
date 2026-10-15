@@ -7,15 +7,13 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 // testDB opens a DB connection, skipping if PG is unavailable.
 func testDB(t *testing.T) *db.DB {
 	t.Helper()
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skipf("no database config (%v)", err)
-	}
+	dsn := dbtest.DSN(t)
 	d, err := db.Open(dsn)
 	if err != nil {
 		t.Skipf("postgres unavailable (%v)", err)

@@ -77,6 +77,44 @@ A passing tool-call diagnostic proves the wire path, not that a model can comple
 
 No paid cloud calls, external target scans, real notifications, publication, deployment, release or merge. Anthropic, OpenAI Chat/Responses and custom gateways were verified through wire-contract tests, regressions and editable browser flows, not live provider accounts. All test databases were disposable, and the host Ollama configuration was not changed. The optional `local_llm_only` policy is off by default; servers still need `OLLAMA_NO_CLOUD` set separately.
 
+## Running database-backed tests
+
+The `db`, `server` and `agent` suites need PostgreSQL. They resolve their
+connection string **only** from the `ARTEX_TEST_DSN` environment variable and
+will never fall back to the application's own DSN (`ARTEX_PG_DSN` /
+`config.json`). This is deliberate: it keeps `go test` from mutating the
+live/production database the running app uses.
+
+- **`ARTEX_TEST_DSN` unset** → every database-backed test skips. No database is
+  touched.
+- **`ARTEX_TEST_DSN` set to a throwaway database** → the suites run against it.
+- **`ARTEX_TEST_DSN` resolving to the same database as the app** (same host,
+  port and database name) → the run fails fast with
+  `refusing to run tests against the live database; point ARTEX_TEST_DSN at a
+  throwaway DB`, before any test connects.
+
+The simplest way to run them is:
+
+```bash
+make test-db
+```
+
+`make test-db` (via `scripts/test-db.sh`) creates a throwaway database named
+`scopeweaver_test_<pid>` owned by the `sw_user_test` role, points
+`ARTEX_TEST_DSN` at it, runs `go test ./db/ ./server/ ./agent/ -count=1`, and
+drops the database on exit — even if the tests fail. Override `TEST_DB_ROLE`,
+`TEST_DB_HOST` or `TEST_DB_NAME` to match your local PostgreSQL. The database
+name must start with `scopeweaver_test_` (or `scopeweaver_adapter_` for the
+agent-adapter E2E test).
+
+To run a subset against a database you manage yourself, export `ARTEX_TEST_DSN`
+and call `go test` directly:
+
+```bash
+export ARTEX_TEST_DSN='postgres://sw_user_test@/scopeweaver_test_1?host=/tmp&sslmode=disable'
+go test ./server/ -run TestSomething -count=1
+```
+
 ## v0.2.1 candidate — 2026-10-11
 
 The Windows release candidate was built with the real static frontend and tested against disposable PostgreSQL 16.15 databases. These results supersede the historical dependency and Windows-runtime limitations below; the older record is retained for traceability.

@@ -17,6 +17,7 @@ import (
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -36,10 +37,7 @@ func (p retestProvider) Stream(context.Context, llm.CompletionRequest) iter.Seq2
 
 func newRetestServer(t *testing.T) (*Server, int64) {
 	t.Helper()
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skip("test postgres not configured")
-	}
+	dsn := dbtest.DSN(t)
 	pg, err := db.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

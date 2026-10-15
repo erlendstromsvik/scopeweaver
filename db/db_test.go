@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -51,15 +52,11 @@ func TestApplySchemaRetriesOnlyDeadlocks(t *testing.T) {
 	}
 }
 
-// testDSN returns the configured DSN, skipping the test when neither the env var
-// nor a config file supplies one (DSN no longer has a built-in default).
+// testDSN returns the throwaway test database DSN, skipping when ARTEX_TEST_DSN
+// is unset and refusing to run against the live database. See internal/dbtest.
 func testDSN(t *testing.T) string {
 	t.Helper()
-	dsn, _, err := DSN()
-	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
-	}
-	return dsn
+	return dbtest.DSN(t)
 }
 
 // TestOpenSeed opens the live dev PG, applies schema, seeds, and verifies the

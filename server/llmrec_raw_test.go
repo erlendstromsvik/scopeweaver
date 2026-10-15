@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
@@ -19,6 +20,7 @@ import (
 // → llm_records. The unit tests cover each hop; this proves the raw bodies
 // actually survive all the way into the row an operator opens when debugging.
 func TestRecorderPersistsRawWireBodies(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/locale"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 )
 
 func TestSpawnTaskInheritsRunOrParentLanguage(t *testing.T) {
+	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	previousDefault := locale.ServerDefault()
 	defer locale.SetServerDefault(previousDefault)
 	m, err := NewManager(t.TempDir(), "")
