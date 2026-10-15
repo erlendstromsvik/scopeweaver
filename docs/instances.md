@@ -148,7 +148,7 @@ The instance state root is `~/.scopeweaver/instances` (override with
 ### 3. Watch it
 
 ```bash
-make instance-status ID=sw-20261016-091500-a1b2
+./scripts/sw-instance.sh status ID=sw-20261016-091500-a1b2
 ```
 
 Logs in as `ARTEX` with the generated admin password and prints
@@ -157,7 +157,7 @@ Logs in as `ARTEX` with the generated admin password and prints
 ### 4. Land the deliverable
 
 ```bash
-make instance-report ID=sw-20261016-091500-a1b2
+./scripts/sw-instance.sh report ID=sw-20261016-091500-a1b2
 ```
 
 Calls `POST /api/instance/deliverable` and prints the bundle directory
@@ -168,7 +168,7 @@ not finished, or the bundle already exists.
 ### 5. Destroy
 
 ```bash
-make instance-destroy ID=sw-20261016-091500-a1b2
+./scripts/sw-instance.sh destroy ID=sw-20261016-091500-a1b2
 ```
 
 `docker compose down -v --remove-orphans`, then `rm -rf` of the instance
@@ -178,7 +178,7 @@ is kept.
 ### 6. List
 
 ```bash
-make instance-ls
+./scripts/sw-instance.sh ls
 ```
 
 Prints the instance directories under `SW_HOME` and the running `sw-`
