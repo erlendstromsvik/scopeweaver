@@ -1179,6 +1179,20 @@ CREATE TABLE IF NOT EXISTS finding_traffic_bindings (
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_order ON finding_traffic_bindings(finding_id, position, id);
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_snapshot ON finding_traffic_bindings(snapshot_id);
 
+-- Structured classification refs for a finding: each finding gets many refs
+-- (cwe, asvs, wstg, owasp-top10, optional cvss), keeping findings.vulnclass as
+-- free text for compatibility. scheme uses the no-CHECK allowlist style (Go
+-- validated, like findings.status) so new schemes need no migration.
+CREATE TABLE IF NOT EXISTS finding_refs (
+    id         BIGSERIAL PRIMARY KEY,
+    finding_id BIGINT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    scheme     TEXT NOT NULL,   -- 'cwe' | 'asvs' | 'wstg' | 'owasp-top10' | 'cvss'
+    ref        TEXT NOT NULL,   -- e.g. 'CWE-79', 'V1.1.1', 'WSTG-INFO-01', 'A05:2025', a CVSS vector
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_finding_refs ON finding_refs(finding_id, scheme, ref);
+CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
+
 -- =====================================================================
 -- M. Persistent backend logs.
 -- =====================================================================

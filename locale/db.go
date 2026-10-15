@@ -326,4 +326,11 @@ func init() {
 	Register("a pass verdict requires an evidence reference", "a pass verdict requires an evidence reference", "pass 판정에는 증거 참조가 필요합니다")
 	Register("a pass verdict requires at least one covered asset", "a pass verdict requires at least one covered asset", "pass 판정에는 점검한 자산이 하나 이상 필요합니다")
 	Register("a not_applicable verdict requires a reason", "a not_applicable verdict requires a reason", "not_applicable 판정에는 사유가 필요합니다")
+
+	// Finding refs store (db/finding_refs.go) validation messages.
+	Register("finding ref requires a finding id", "finding ref requires a finding id", "finding 참조에는 finding ID가 필요합니다")
+	Register("unknown finding ref scheme %q", "unknown finding ref scheme %q", "알 수 없는 finding 참조 스킴 %q입니다")
+	Register("finding ref requires a non-empty ref", "finding ref requires a non-empty ref", "finding 참조에는 비어 있지 않은 ref가 필요합니다")
+	Register("cwe ref %q must look like CWE-79", "cwe ref %q must look like CWE-79", "cwe 참조 %q는 CWE-79 형식이어야 합니다")
+	Register("owasp-top10 ref %q must look like A05:2025", "owasp-top10 ref %q must look like A05:2025", "owasp-top10 참조 %q는 A05:2025 형식이어야 합니다")
 }
