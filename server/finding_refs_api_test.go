@@ -2,11 +2,13 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
@@ -40,13 +42,14 @@ func TestResolveFindingRef(t *testing.T) {
 }
 
 // refsFixture creates a task with one finding and returns a request helper bound
-// to a Server sharing the manager.
+// to a fully constructed, JWT-authenticated Server (same shape as
+// trafficEvidenceServer).
 func refsFixture(t *testing.T) (func(method, path, body string) *httptest.ResponseRecorder, int64) {
 	t.Helper()
 	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("refs api", "goal", nil, 0, 0)
@@ -57,14 +60,25 @@ func refsFixture(t *testing.T) (func(method, path, body string) *httptest.Respon
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { m.pg.Exec(`DELETE FROM task_archives WHERE task_id=$1`, tid); m.pg.DeleteTask(tid) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	s.archiveWG.Wait()
+	// Wait for the side-question snapshot writer before reusing this fixture.
+	<-s.side.done
+	token, err := signJWT(s.jwtKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fid, err := m.pg.AddFinding(tid, 0, "TEST", "refs finding", "low", "summary", "", "test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{m: m}
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		r := httptest.NewRequest(method, path, bytes.NewReader([]byte(body)))
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.Handler().ServeHTTP(w, r)
@@ -106,7 +120,7 @@ func TestFindingRefsAPI(t *testing.T) {
 		t.Fatalf("PUT code=%d body=%s", w.Code, w.Body.String())
 	}
 	got := decodeRefs(t, w)
-	if len(got) != 2 || got[0] != (FindingRefDTO{Scheme: "cwe", Ref: "CWE-79"}) || got[1] != (FindingRefDTO{Scheme: "asvs", Ref: "V1.1.1"}) {
+	if len(got) != 2 || got[0] != (FindingRefDTO{Scheme: "asvs", Ref: "V1.1.1"}) || got[1] != (FindingRefDTO{Scheme: "cwe", Ref: "CWE-79"}) {
 		t.Fatalf("PUT refs = %+v", got)
 	}
 	w = request(http.MethodGet, path, "")
@@ -126,7 +140,7 @@ func TestFindingRefsAPI(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET after bad PUT code=%d body=%s", w.Code, w.Body.String())
 	}
-	if got := decodeRefs(t, w); len(got) != 2 || got[0].Scheme != "cwe" || got[1].Scheme != "asvs" {
+	if got := decodeRefs(t, w); len(got) != 2 || got[0].Scheme != "asvs" || got[1].Scheme != "cwe" {
 		t.Fatalf("refs after bad PUT = %+v, want the previous two", got)
 	}
 
