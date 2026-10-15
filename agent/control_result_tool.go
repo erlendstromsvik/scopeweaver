@@ -19,14 +19,27 @@ type ControlResultWriter interface {
 }
 
 // controlResultWriter returns the writer record_control_result uses, or nil.
-func (t *ToolSet) controlResultWriter() ControlResultWriter { return t.controlWriter }
+// Falls back to the task-bound ExplorationStore (which satisfies the interface via
+// its UpsertControlResult passthrough) when no explicit writer was injected.
+// Returns a plain nil, never a typed-nil *ExplorationStore wrapped in the
+// interface: a non-nil interface holding a nil pointer would slip past the
+// `w == nil` guard in the handler and panic on the call.
+func (t *ToolSet) controlResultWriter() ControlResultWriter {
+	if t.controlWriter != nil {
+		return t.controlWriter
+	}
+	if t.ts != nil {
+		return t.ts
+	}
+	return nil
+}
 
 func (t *ToolSet) recordControlResult() actool.CoreTool {
 	return writeTool("record_control_result", locale.Text(t.language, "Record your verdict for one security-standard requirement (OWASP ASVS or WSTG) in this task. Use only for requirements you actually checked: pass needs evidence_ref and asset_ids; fail needs finding_ids of findings already reported with report_finding; not_applicable needs reason. Calling again for the same requirement replaces the earlier verdict."),
 		obj(map[string]any{
 			"standard":       str("asvs|wstg"),
 			"requirement_id": str(locale.Text(t.language, "Requirement ID from the standard, e.g. V1.1.1 (ASVS) or WSTG-INFO-01 (WSTG)")),
-			"verdict":        str("pass|fail|partial|not_applicable|not_tested|inconclusive"),
+			"verdict":        str("pass|fail|partial|not_applicable|inconclusive"),
 			"method":         str("agent|automated|manual|document"),
 			"evidence_ref":   str(locale.Text(t.language, "Evidence reference proving the check, such as a traffic snapshot ID or a pointer to command output; required for pass")),
 			"reason":         str(locale.Text(t.language, "Reason for the verdict; required for not_applicable")),
@@ -67,6 +80,9 @@ func (t *ToolSet) recordControlResult() actool.CoreTool {
 			}
 			if !cat.Resolve(std, req) {
 				return actool.Errorf(fmt.Sprintf(locale.Text(lang, "unknown requirement %q in standard %q; check the ID against the standard"), req, std)), nil
+			}
+			if verdict == db.VerdictNotTested {
+				return actool.Errorf(locale.Text(lang, "not_tested cannot be recorded by an agent; it marks requirements nobody has checked yet. Record the verdict once you have checked the requirement, or use inconclusive.")), nil
 			}
 			w := t.controlResultWriter()
 			id, err := w.UpsertControlResult(db.ControlResultInput{

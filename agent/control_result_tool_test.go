@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,6 +26,119 @@ func newCRToolSet(w *fakeControlWriter) *ToolSet {
 	ts.SetTaskID(7)
 	ts.controlWriter = w
 	return ts
+}
+
+// TestRecordControlResultRejectsNotTested: agents may not record the system-only
+// not_tested verdict (E.4 seeds it). The tool must refuse and never reach the writer.
+func TestRecordControlResultRejectsNotTested(t *testing.T) {
+	fake := &fakeControlWriter{}
+	ts := newCRToolSet(fake)
+	res, err := ts.recordControlResult().Call(t.Context(), json.RawMessage(`{"standard":"asvs","requirement_id":"V1.1.1","verdict":"not_tested"}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || !strings.Contains(res.Flatten(), "not_tested cannot be recorded by an agent") {
+		t.Fatalf("want not_tested refusal, got IsError=%v %q", res.IsError, res.Flatten())
+	}
+	if len(fake.got) != 0 {
+		t.Fatalf("writer called for not_tested: %+v", fake.got)
+	}
+}
+
+// TestRecordControlResultNoWriterNoStore: with controlWriter nil and t.ts nil the
+// tool must answer with the task-context refusal, not a nil-interface panic.
+func TestRecordControlResultNoWriterNoStore(t *testing.T) {
+	ts := NewToolSet(nil, "worker-1")
+	ts.SetTaskID(7)
+	res, err := ts.recordControlResult().Call(t.Context(), json.RawMessage(`{"standard":"asvs","requirement_id":"V1.1.1","verdict":"pass","evidence_ref":"snap-1","asset_ids":[1]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || !strings.Contains(res.Flatten(), "task context") {
+		t.Fatalf("want task-context refusal, got IsError=%v %q", res.IsError, res.Flatten())
+	}
+}
+
+// TestRecordControlResultInWorkerTools: the tool is bound to the worker agent and
+// not to mainagent (owner decision: worker only).
+func TestRecordControlResultInWorkerTools(t *testing.T) {
+	ts := NewToolSet(nil, "")
+	inWorker := false
+	for _, tool := range ts.WorkerTools() {
+		if tool.Name() == "record_control_result" {
+			inWorker = true
+		}
+	}
+	if !inWorker {
+		t.Fatal("record_control_result missing from WorkerTools")
+	}
+	for _, tool := range ts.MainAgentTools() {
+		if tool.Name() == "record_control_result" {
+			t.Fatal("record_control_result must not be in MainAgentTools")
+		}
+	}
+}
+
+// TestRecordControlResultSeedsWorkerOnly: the catalog seed binds the tool to the
+// worker agent and to no other agent (mainagent/goals/planner/auto/pentest).
+func TestRecordControlResultSeedsWorkerOnly(t *testing.T) {
+	var seed *ToolSeed
+	seeds := BuiltinToolSeeds()
+	for i := range seeds {
+		if seeds[i].Key == "record_control_result" {
+			seed = &seeds[i]
+		}
+	}
+	if seed == nil {
+		t.Fatal("record_control_result not seeded")
+	}
+	if len(seed.Agents) != 1 || seed.Agents[0] != "worker" {
+		t.Fatalf("record_control_result agents = %v, want [worker]", seed.Agents)
+	}
+}
+
+// TestRecordControlResultPersists: a worker ToolSet whose ts is a real
+// task-bound ExplorationStore writes through the passthrough; the row is visible
+// via ListControlResults.
+func TestRecordControlResultPersists(t *testing.T) {
+	d := testDB(t)
+	defer d.Close()
+	tk, err := d.CreateTask("control result wiring test", "Goal", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.DeleteTask(tk.ID)
+	assetID, err := d.Assets().UpsertHTTPService(db.UpsertHTTPServiceReq{
+		URL:    "http://cr-wire-test.example.org/",
+		TaskID: tk.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewToolSet(d.Exploration(tk.ExplorationID), "worker-1")
+	ts.SetTaskID(tk.ID)
+	res, err := ts.recordControlResult().Call(t.Context(), json.RawMessage(
+		`{"standard":"asvs","requirement_id":"V1.1.1","verdict":"pass","evidence_ref":"snap-9","asset_ids":[`+strconv.FormatInt(assetID, 10)+`]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %q", res.Flatten())
+	}
+	rows, err := d.ListControlResults(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 control result, got %d", len(rows))
+	}
+	got := rows[0]
+	if got.Standard != "asvs" || got.RequirementID != "V1.1.1" || got.Verdict != "pass" || got.Method != "agent" || got.EvidenceRef != "snap-9" || got.Actor != "worker-1" {
+		t.Fatalf("persisted row wrong: %+v", got)
+	}
+	if len(got.AssetsCovered) != 1 || got.AssetsCovered[0] != assetID {
+		t.Fatalf("AssetsCovered = %v, want [%d]", got.AssetsCovered, assetID)
+	}
 }
 
 func TestRecordControlResultRequiresTask(t *testing.T) {

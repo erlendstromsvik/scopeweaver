@@ -6,6 +6,7 @@
   "IDs of the assets that were checked; required for pass": "已检查资产的 ID；pass 时必填",
   "finding_id values from report_finding that prove the failure; required for fail": "证明不合规的 report_finding 返回的 finding_id；fail 时必填",
   "record_control_result requires task context; it is only available to agents running inside a task": "record_control_result 需要任务上下文；仅在任务内运行的代理可用",
+  "not_tested cannot be recorded by an agent; it marks requirements nobody has checked yet. Record the verdict once you have checked the requirement, or use inconclusive.": "代理无法记录 not_tested；该值表示尚无人检查过的要求项。请在检查该要求项后记录判定，或使用 inconclusive。",
   "unknown requirement %q in standard %q; check the ID against the standard": "未知的要求项 %q（标准 %q）；请对照标准核对 ID",
   "control result requires a task id": "控制项结果需要任务 ID",
   "unknown standard %q (want asvs or wstg)": "未知的标准 %q（应为 asvs 或 wstg）",
