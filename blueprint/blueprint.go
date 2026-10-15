@@ -159,7 +159,7 @@ type LLM struct {
 	Provider  string `yaml:"provider"`
 	Model     string `yaml:"model"`
 	BaseURL   string `yaml:"base_url"`
-	APIKey    string `yaml:"api_key"`
+	APIKey    string `yaml:"api_key"` // optional for provider ollama; otherwise a secret ref
 	MaxTokens int    `yaml:"max_tokens"`
 }
 
@@ -313,7 +313,14 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 	}
 
 	// secret-ref rule: these fields must be references, never inline secrets.
-	if !secretRefRe.MatchString(bp.LLM.APIKey) {
+	// llm.api_key may be omitted (empty) only for provider ollama: a local
+	// Ollama needs no key (agent/provider.go "Ready allows keyless native
+	// Ollama"). Every other provider must supply a secret ref.
+	if strings.TrimSpace(bp.LLM.APIKey) == "" {
+		if bp.LLM.Provider != "ollama" {
+			add("llm.api_key: required for provider %q (only ollama may omit it)", bp.LLM.Provider)
+		}
+	} else if !secretRefRe.MatchString(bp.LLM.APIKey) {
 		add("llm.api_key: inline secret not allowed; use ${env:VAR} or ${file:/path}")
 	}
 	if !secretRefRe.MatchString(bp.Admin.Password) {

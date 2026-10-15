@@ -1,0 +1,31 @@
+# Valid: provider ollama with no api_key line — a local Ollama needs no key.
+# Validates clean (no errors).
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe"
+  window:
+    start: 2026-10-20
+    end: 2026-10-24
+  reference: "ENG-123"
+company:
+  name: Example Corp
+scope:
+  - { kind: domain, value: example.com }
+constraints:
+  - kind: allow
+    text: Only test example.com.
+task:
+  goal: Map and fingerprint.
+  timeout_seconds: 14400
+  plan_heartbeat_seconds: 600
+runtime:
+  workers: 2
+  llm_max_concurrent: 2
+llm:
+  provider: ollama
+  model: qwen-3.8
+  base_url: http://127.0.0.1:11434
+admin:
+  username: ARTEX
+  password: ${env:SW_ADMIN_PASSWORD}

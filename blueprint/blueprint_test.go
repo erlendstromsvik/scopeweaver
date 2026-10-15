@@ -50,7 +50,8 @@ func TestLoadExample(t *testing.T) {
 // TestValidFixtures covers inputs that must validate with no error and no
 // warning, including the secret-ref accept case (env + file refs).
 func TestValidFixtures(t *testing.T) {
-	for _, f := range []string{"testdata/valid.yaml", "testdata/secret-env-and-file.yaml"} {
+	files := []string{"testdata/valid.yaml", "testdata/secret-env-and-file.yaml", "testdata/keyless-ollama.yaml"}
+	for _, f := range files {
 		f := f
 		t.Run(f, func(t *testing.T) {
 			_, warnings, err := Load(f)
@@ -95,6 +96,7 @@ func TestInvalidFixtures(t *testing.T) {
 		}},
 		{"testdata/inline-apikey.yaml", []string{"llm.api_key: inline secret not allowed"}},
 		{"testdata/inline-password.yaml", []string{"admin.password: inline secret not allowed"}},
+		{"testdata/keyless-openai.yaml", []string{"llm.api_key: required for provider \"openai\""}},
 	}
 
 	for _, tc := range cases {

@@ -123,6 +123,37 @@ func TestResolveSecrets(t *testing.T) {
 			t.Fatal("ResolveSecrets: want error for unset admin password env")
 		}
 	})
+
+	t.Run("keyless ollama leaves LLMAPIKey empty", func(t *testing.T) {
+		bp := &blueprint.Blueprint{
+			Admin: blueprint.Admin{Password: "${env:PROVISION_ADMIN_PW}"},
+			LLM: blueprint.LLM{
+				Provider: "ollama",
+				Model:    "qwen-3.8",
+				BaseURL:  "http://127.0.0.1:11434",
+			},
+		}
+		s, err := ResolveSecrets(bp)
+		if err != nil {
+			t.Fatalf("ResolveSecrets: %v", err)
+		}
+		if s.LLMAPIKey != "" {
+			t.Errorf("LLMAPIKey = %q, want empty", s.LLMAPIKey)
+		}
+		if s.AdminPassword != "admin-pw" {
+			t.Errorf("AdminPassword = %q, want %q", s.AdminPassword, "admin-pw")
+		}
+		plan, err := BuildPlan(bp, s)
+		if err != nil {
+			t.Fatalf("BuildPlan: %v", err)
+		}
+		if plan.Profile.APIKey != "" {
+			t.Errorf("Plan.Profile.APIKey = %q, want empty", plan.Profile.APIKey)
+		}
+		if plan.Profile.Format != "ollama" {
+			t.Errorf("Plan.Profile.Format = %q, want %q", plan.Profile.Format, "ollama")
+		}
+	})
 }
 
 func TestBuildPlan(t *testing.T) {

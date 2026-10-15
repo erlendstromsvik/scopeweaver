@@ -82,16 +82,18 @@ func isRef(s string) bool {
 // memory only for the duration of provisioning.
 type Secrets struct {
 	AdminPassword string // resolved from blueprint.Admin.Password (always a ref)
-	LLMAPIKey     string // resolved from blueprint.LLM.APIKey (always a ref)
+	LLMAPIKey     string // resolved from blueprint.LLM.APIKey (a ref, or "" when omitted for ollama)
 	LLMBaseURL    string // blueprint.LLM.BaseURL, resolved if a ref, else literal
 }
 
 // ResolveSecrets resolves every secret the blueprint needs.
 //
-// The blueprint validator (D.1) guarantees admin.password and llm.api_key are
-// references, so both are resolved via ResolveRef. llm.base_url may be a literal
-// URL or a reference: it is resolved if it has the reference shape and passed
-// through verbatim otherwise.
+// The blueprint validator (D.1) guarantees admin.password is a reference, so
+// it is resolved via ResolveRef. llm.api_key is a reference too, except that
+// an ollama blueprint may omit it entirely (keyless local Ollama); an empty
+// api_key resolves to "" without a ResolveRef call. llm.base_url may be a
+// literal URL or a reference: it is resolved if it has the reference shape
+// and passed through verbatim otherwise.
 func ResolveSecrets(bp *blueprint.Blueprint) (Secrets, error) {
 	var s Secrets
 	var err error
@@ -99,8 +101,10 @@ func ResolveSecrets(bp *blueprint.Blueprint) (Secrets, error) {
 	if s.AdminPassword, err = ResolveRef(bp.Admin.Password); err != nil {
 		return Secrets{}, fmt.Errorf("admin.password: %w", err)
 	}
-	if s.LLMAPIKey, err = ResolveRef(bp.LLM.APIKey); err != nil {
-		return Secrets{}, fmt.Errorf("llm.api_key: %w", err)
+	if strings.TrimSpace(bp.LLM.APIKey) != "" {
+		if s.LLMAPIKey, err = ResolveRef(bp.LLM.APIKey); err != nil {
+			return Secrets{}, fmt.Errorf("llm.api_key: %w", err)
+		}
 	}
 	if isRef(bp.LLM.BaseURL) {
 		if s.LLMBaseURL, err = ResolveRef(bp.LLM.BaseURL); err != nil {
