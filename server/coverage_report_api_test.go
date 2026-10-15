@@ -21,20 +21,26 @@ func TestCoverageReportHandler(t *testing.T) {
 	dbtest.DSN(t) // skip unless ARTEX_TEST_DSN points at a throwaway DB
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatal(err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("coverage report task", "goal", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	taskID := mustTaskID(t, task.ID)
-	defer m.pg.DeleteTask(taskID)
 
+	// Cancel BEFORE New so no background engine loops start on the task
+	// (the trafficEvidenceServer pattern); otherwise teardown hangs.
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	cancel()
 	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
 	s.archiveWG.Wait()
+	<-s.side.done
+	t.Cleanup(func() {
+		m.pg.Exec(`DELETE FROM task_archives WHERE task_id=$1`, taskID)
+		m.pg.DeleteTask(taskID)
+	})
 	token, err := signJWT(s.jwtKey)
 	if err != nil {
 		t.Fatal(err)
