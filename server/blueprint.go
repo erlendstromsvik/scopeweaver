@@ -15,6 +15,10 @@ import (
 // resumed the prior run).
 const blueprintProvisionedKey = "blueprint.provisioned"
 
+// blueprintTaskIDKey records the id of the task this blueprint admitted, so the
+// instance status endpoint and the completion watcher can find it without the UI.
+const blueprintTaskIDKey = "blueprint.task_id"
+
 // scopeSpecsToInputs maps neutral provisioning scope specs onto the db scope
 // input rows CreateCompanyWithScope expects, 1:1. Pure; DB-free.
 func scopeSpecsToInputs(specs []provision.ScopeSpec) []db.ScopeInput {
@@ -149,6 +153,12 @@ func (s *Server) ApplyBlueprint(bp *blueprint.Blueprint, plan *provision.Plan) e
 		blueprintTaskOptions(plan, companyID, profileID))
 	if err != nil {
 		return locale.Errorf("blueprint provisioning: create task: %w", err)
+	}
+
+	// Record the task id so the instance status endpoint and the completion
+	// watcher (D.3) can locate the blueprint's task without the UI.
+	if err := pg.SetSetting(blueprintTaskIDKey, task.ID); err != nil {
+		return locale.Errorf("blueprint provisioning: record task id: %w", err)
 	}
 
 	// 7. Operation constraints, authored by the system (the blueprint).

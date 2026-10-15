@@ -495,6 +495,18 @@ UPDATE tasks
 	return err
 }
 
+// TaskResultCounts returns how many findings and assets belong to a task.
+// Findings are keyed by task_id; assets carry the task in their task_ids array.
+func (d *DB) TaskResultCounts(taskID int64) (findings, assets int, err error) {
+	if err := d.QueryRow(`SELECT count(*) FROM findings WHERE task_id = $1`, taskID).Scan(&findings); err != nil {
+		return 0, 0, err
+	}
+	if err := d.QueryRow(`SELECT count(*) FROM assets WHERE $1 = ANY(task_ids)`, taskID).Scan(&assets); err != nil {
+		return 0, 0, err
+	}
+	return findings, assets, nil
+}
+
 // SetTerminalStatusGuarded sets a terminal status only when the task is NOT already
 // terminal, so a completed↔timeout race resolves to the first writer (won=true).
 // Returns won=false (no error) when another terminal status already stuck — the

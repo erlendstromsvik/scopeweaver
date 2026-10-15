@@ -130,6 +130,9 @@ func run() int {
 		if err := srv.ApplyBlueprint(bp, plan); err != nil {
 			log.Fatalf("blueprint: apply: %v", err)
 		}
+		// Watch the admitted task and emit the completion marker when it goes
+		// terminal, so the orchestrator can detect completion without the UI.
+		srv.WatchBlueprintCompletion(5 * time.Second)
 	}
 
 	httpSrv := &http.Server{
