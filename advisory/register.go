@@ -71,7 +71,10 @@ func ReadRegister(r io.Reader) ([]RegisterEntry, error) {
 // MergeRegister returns only the incoming records that existing does not
 // already hold: records whose ID is absent from existing and not repeated
 // within incoming. New entries carry FirstSeen = seen's UTC date and a
-// non-nil CVEs slice, ordered oldest first (Date asc, then ID) so appending
+// non-nil CVEs slice; the Date is the record's own calendar date (RSS
+// dates carry +0200/+0100 offsets and archive dates are noon UTC, so a
+// UTC conversion would shift late-night Norwegian alerts to the previous
+// day), ordered oldest first (Date asc, then ID) so appending
 // keeps the register roughly chronological. existing is not modified.
 func MergeRegister(existing []RegisterEntry, incoming []Record, seen time.Time) []RegisterEntry {
 	have := make(map[string]bool, len(existing))
@@ -93,7 +96,7 @@ func MergeRegister(existing []RegisterEntry, incoming []Record, seen time.Time) 
 			ID:        rec.ID,
 			Source:    rec.Source,
 			Title:     rec.Title,
-			Date:      rec.Date.UTC().Format("2006-01-02"),
+			Date:      rec.Date.Format("2006-01-02"),
 			Link:      rec.Link,
 			CVEs:      cves,
 			Summary:   rec.Summary,

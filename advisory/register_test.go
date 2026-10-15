@@ -142,7 +142,7 @@ func TestMergeRegisterReturnsOnlyNewEntriesOldestFirst(t *testing.T) {
 		t.Errorf("b CVEs = %v, want [CVE-2026-1111]", got[0].CVEs)
 	}
 	if got[1].Date != "2026-10-03" {
-		t.Errorf("c Date = %q, want 2026-10-03 (UTC)", got[1].Date)
+		t.Errorf("c Date = %q, want 2026-10-03 (record's own calendar day)", got[1].Date)
 	}
 	// A record with no CVEs must still marshal as an empty array, not null.
 	var buf bytes.Buffer

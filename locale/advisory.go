@@ -43,6 +43,51 @@ func init() {
 			Ko:     "%[2]q 항목의 NSM RSS pubDate %[1]q 파싱 오류: %[3]v",
 			ZhHans: "解析 %[2]q 条目的 NSM RSS pubDate %[1]q：%[3]v",
 		},
+		"parse NSM archive page: %v": {
+			En:     "parse NSM archive page: %v",
+			Ko:     "NSM 아카이브 페이지 파싱 오류: %v",
+			ZhHans: "解析 NSM 存档页面：%v",
+		},
+		"NSM archive article missing link (title %q)": {
+			En:     "NSM archive article missing link (title %q)",
+			Ko:     "NSM 아카이브 항목에 link이 없습니다(제목 %q)",
+			ZhHans: "NSM 存档条目缺少 link（标题 %q）",
+		},
+		"NSM archive article missing headline (link %s)": {
+			En:     "NSM archive article missing headline (link %s)",
+			Ko:     "NSM 아카이브 항목에 headline이 없습니다(link %s)",
+			ZhHans: "NSM 存档条目缺少 headline（链接 %s）",
+		},
+		"parse NSM archive date for article %q: %v": {
+			En:     "parse NSM archive date for article %q: %v",
+			Ko:     "%[1]q 항목의 NSM 아카이브 날짜 파싱 오류: %[2]v",
+			ZhHans: "解析 %[1]q 条目的 NSM 存档日期：%[2]v",
+		},
+		"unrecognised date %q": {
+			En:     "unrecognised date %q",
+			Ko:     "인식할 수 없는 날짜 %q",
+			ZhHans: "无法识别的日期 %q",
+		},
+		"unknown Norwegian month %q": {
+			En:     "unknown Norwegian month %q",
+			Ko:     "알 수 없는 노르웨이 월 %q",
+			ZhHans: "未知的挪威月份 %q",
+		},
+		"unrecognised day %q": {
+			En:     "unrecognised day %q",
+			Ko:     "인식할 수 없는 일 %q",
+			ZhHans: "无法识别的日期数字 %q",
+		},
+		"unrecognised year %q": {
+			En:     "unrecognised year %q",
+			Ko:     "인식할 수 없는 연도 %q",
+			ZhHans: "无法识别的年份 %q",
+		},
+		"no alerts found on the NSM archive page; the page format may have changed": {
+			En:     "no alerts found on the NSM archive page; the page format may have changed",
+			Ko:     "NSM 아카이브 페이지에서 경고를 찾지 못했습니다; 페이지 형식이 변경되었을 수 있습니다",
+			ZhHans: "在 NSM 存档页面未找到警报；页面格式可能已更改",
+		},
 
 		"register line %d: %v": {
 			En:     "register line %d: %v",
