@@ -1390,3 +1390,34 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- =====================================================================
+-- N. Control results: one current verdict per (task, standard, requirement).
+-- =====================================================================
+-- Records, per security-standard requirement, what was checked and the verdict,
+-- so "passed" and "never tested" stop looking identical. One current verdict per
+-- (task_id, standard, requirement_id) — upsert on that unique key; history is out
+-- of scope here but the shape leaves room for it later. verdict/method use inline
+-- CHECKs (precedent: finding_retests.verdict). assets_covered/linked_findings are
+-- JSONB id arrays mirroring findings.asset_ids.
+CREATE TABLE IF NOT EXISTS control_results (
+    id              BIGSERIAL PRIMARY KEY,
+    task_id         BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    standard        TEXT NOT NULL,                 -- 'asvs' | 'wstg' (scheme key)
+    requirement_id  TEXT NOT NULL,                 -- e.g. 'V1.1.1', 'WSTG-INFO-01'
+    verdict         TEXT NOT NULL CHECK (verdict IN
+                      ('pass','fail','partial','not_applicable','not_tested','inconclusive')),
+    method          TEXT NOT NULL DEFAULT '' CHECK (method IN
+                      ('','automated','agent','manual','document')),
+    assets_covered  JSONB NOT NULL DEFAULT '[]',   -- asset ids (mirror findings.asset_ids)
+    evidence_ref    TEXT NOT NULL DEFAULT '',      -- traffic_evidence_snapshots.id or a pointer
+    linked_findings JSONB NOT NULL DEFAULT '[]',   -- findings.id list
+    reason          TEXT NOT NULL DEFAULT '',      -- required for not_applicable; free note otherwise
+    actor           TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_control_results_req
+    ON control_results(task_id, standard, requirement_id);
+CREATE INDEX IF NOT EXISTS idx_control_results_task
+    ON control_results(task_id, standard, verdict);

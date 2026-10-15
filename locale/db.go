@@ -315,4 +315,15 @@ func init() {
 	Register("%w: ip must be an IPv4/IPv6 address; received %q. For a hostname, use type=subdomain and the domain field; to register an address, resolve its A/AAAA record first and use the resolved address in ip", "%w: ip must be an IPv4/IPv6 address; received %q. For a hostname, use type=subdomain and the domain field; to register an address, resolve its A/AAAA record first and use the resolved address in ip", "%w: ip는 IPv4/IPv6 주소여야 합니다. 입력값: %q. 호스트 이름은 type=subdomain과 domain 필드를 사용하세요. 주소를 등록하려면 먼저 A/AAAA 레코드를 조회한 후 확인된 주소를 ip에 입력하세요")
 
 	Register("Auto", "Auto", "플랫폼 도우미")
+
+	// Control results store (db/control_results.go) integrity messages.
+	Register("control result requires a task id", "control result requires a task id", "컨트롤 결과에는 작업 ID가 필요합니다")
+	Register("unknown standard %q (want asvs or wstg)", "unknown standard %q (want asvs or wstg)", "알 수 없는 표준 %q입니다(asvs 또는 wstg)")
+	Register("control result requires a requirement id", "control result requires a requirement id", "컨트롤 결과에는 요구사항 ID가 필요합니다")
+	Register("unknown control verdict %q", "unknown control verdict %q", "알 수 없는 컨트롤 판정 %q입니다")
+	Register("unknown control method %q", "unknown control method %q", "알 수 없는 컨트롤 방법 %q입니다")
+	Register("a fail verdict must link at least one finding", "a fail verdict must link at least one finding", "fail 판정에는 취약점을 하나 이상 연결해야 합니다")
+	Register("a pass verdict requires an evidence reference", "a pass verdict requires an evidence reference", "pass 판정에는 증거 참조가 필요합니다")
+	Register("a pass verdict requires at least one covered asset", "a pass verdict requires at least one covered asset", "pass 판정에는 점검한 자산이 하나 이상 필요합니다")
+	Register("a not_applicable verdict requires a reason", "a not_applicable verdict requires a reason", "not_applicable 판정에는 사유가 필요합니다")
 }
