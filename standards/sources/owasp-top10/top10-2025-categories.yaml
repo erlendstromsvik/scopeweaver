@@ -1,0 +1,27 @@
+# OWASP Top 10:2025 — reporting categories only.
+#
+# The Top 10 is an awareness list, not a verification standard; ScopeWeaver uses
+# these solely as report grouping categories (see
+# docs/reference/security-standards-and-coverage.md, E-D1). Requirement-level
+# testing comes from ASVS + WSTG.
+#
+# There is no upstream machine-readable data file for the category list, so this
+# file is transcribed verbatim from the official site. Keep it in sync with the
+# source; the crosswalk (ASVS/CWE -> top10) references these ids.
+#
+# Source:   https://top10.owasp.org/2025/
+# Retrieved: 2026-10-15
+# License:  CC BY-SA 4.0 (OWASP). See ../NOTICE.
+version: "2025"
+source: https://top10.owasp.org/2025/
+categories:
+  - { id: "A01:2025", title: "Broken Access Control" }
+  - { id: "A02:2025", title: "Security Misconfiguration" }
+  - { id: "A03:2025", title: "Software Supply Chain Failures" }
+  - { id: "A04:2025", title: "Cryptographic Failures" }
+  - { id: "A05:2025", title: "Injection" }
+  - { id: "A06:2025", title: "Insecure Design" }
+  - { id: "A07:2025", title: "Authentication Failures" }
+  - { id: "A08:2025", title: "Software or Data Integrity Failures" }
+  - { id: "A09:2025", title: "Security Logging and Alerting Failures" }
+  - { id: "A10:2025", title: "Mishandling of Exceptional Conditions" }
