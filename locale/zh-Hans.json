@@ -1,4 +1,8 @@
 {
+  "parse CISA KEV catalog: %v": "解析 CISA KEV 目录：%v",
+  "CISA KEV count field %d does not match %d entries": "CISA KEV count 字段 %d 与 %d 个条目不匹配",
+  "CISA KEV entry missing cveID (product %q)": "CISA KEV 条目缺少 cveID（产品 %q）",
+  "parse CISA KEV dateAdded %q for %s: %v": "解析 %[2]s 的 CISA KEV dateAdded %[1]q：%[3]v",
   "control result requires a task id": "控制项结果需要任务 ID",
   "unknown standard %q (want asvs or wstg)": "未知的标准 %q（应为 asvs 或 wstg）",
   "control result requires a requirement id": "控制项结果需要要求项 ID",
