@@ -55,4 +55,19 @@ func init() {
 	Register("Last seen", "Last seen", "마지막 관측")
 	Register("Source", "Source", "출처")
 	Register("Details", "Details", "세부 정보")
+	// Coverage report (roadmap E.5a). The last string is the non-compliance
+	// disclaimer; "compliance" appears nowhere else in the report.
+	Register("# Coverage report\n\n", "# Coverage report\n\n", "# 커버리지 보고서\n\n")
+	Register("Generated: %s\n\n", "Generated: %s\n\n", "생성: %s\n\n")
+	Register("Verified against %d of %d applicable %s requirements (scope: %s).\n\n", "Verified against %d of %d applicable %s requirements (scope: %s).\n\n", "%d개를 검증했습니다(적용 %d개 중, %s 요구 사항, 범위 %s).\n\n")
+	Register("all tests", "all tests", "전체 테스트")
+	Register("level 1", "level 1", "레벨 1")
+	Register("levels 1–%d", "levels 1–%d", "레벨 1–%d")
+	Register("| Standard | In scope | Not applicable | Verified | Pass | Fail | Partial | Inconclusive | Not tested | No result |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", "| Standard | In scope | Not applicable | Verified | Pass | Fail | Partial | Inconclusive | Not tested | No result |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", "| 표준 | 범위 내 | 적용 불가 | 검증됨 | 통과 | 실패 | 부분 | 불확실 | 미테스트 | 결과 없음 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	Register("## Coverage matrix\n\n", "## Coverage matrix\n\n", "## 커버리지 매트릭스\n\n")
+	Register("| Requirement | Level | Verdict | Method | Evidence | Findings |\n| --- | --- | --- | --- | --- | --- |\n", "| Requirement | Level | Verdict | Method | Evidence | Findings |\n| --- | --- | --- | --- | --- | --- |\n", "| 요구 사항 | 레벨 | 판정 | 방법 | 증거 | 발견 사항 |\n| --- | --- | --- | --- | --- | --- |\n")
+	Register("## Limitations\n\n", "## Limitations\n\n", "## 한계\n\n")
+	Register("%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n", "%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n", "%d개의 %s 요구 사항을 테스트하지 않았고, %d개는 불확실하며, %d개는 기록된 결과가 없습니다.\n")
+	Register("%d recorded results were outside the selected scope and are not counted.\n", "%d recorded results were outside the selected scope and are not counted.\n", "기록된 결과 %d개는 선택된 범위 밖이므로 계산에 포함되지 않습니다.\n")
+	Register("This report states what was verified and how. It is not a certification or a statement of compliance.", "This report states what was verified and how. It is not a certification or a statement of compliance.", "이 보고서는 검증한 내용과 방법을 명시합니다. 인증이나 컴플라이언스 선언이 아닙니다.")
 }

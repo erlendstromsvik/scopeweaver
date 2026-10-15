@@ -1888,5 +1888,18 @@
   "[evidence] upgrade %s: %v": "[evidence] 升级 %s：%v",
   "[evidence] tool schema: %v": "[evidence] 工具 schema：%v",
   "[evidence] upgrade tool %s: %v": "[evidence] 升级工具 %s：%v",
-  "[retest %d] finish: %v": "[retest %d] 完成：%v"
+  "[retest %d] finish: %v": "[retest %d] 完成：%v",
+  "# Coverage report\n\n": "# 覆盖率报告\n\n",
+  "Generated: %s\n\n": "生成时间：%s\n\n",
+  "Verified against %d of %d applicable %s requirements (scope: %s).\n\n": "已验证 %d 项（共 %d 项适用的 %s 要求，范围：%s）。\n\n",
+  "all tests": "全部测试",
+  "level 1": "级别 1",
+  "levels 1–%d": "级别 1–%d",
+  "| Standard | In scope | Not applicable | Verified | Pass | Fail | Partial | Inconclusive | Not tested | No result |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n": "| 标准 | 范围内 | 不适用 | 已验证 | 通过 | 失败 | 部分 | 不确定 | 未测试 | 无结果 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n",
+  "## Coverage matrix\n\n": "## 覆盖率矩阵\n\n",
+  "| Requirement | Level | Verdict | Method | Evidence | Findings |\n| --- | --- | --- | --- | --- | --- |\n": "| 要求 | 级别 | 判定 | 方法 | 证据 | 发现 |\n| --- | --- | --- | --- | --- | --- |\n",
+  "## Limitations\n\n": "## 局限性\n\n",
+  "%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n": "%d 项 %s 要求未测试，%d 项不确定，%d 项没有记录结果。\n",
+  "%d recorded results were outside the selected scope and are not counted.\n": "%d 条记录结果超出所选范围，未计入统计。\n",
+  "This report states what was verified and how. It is not a certification or a statement of compliance.": "本报告仅说明已验证的内容及方式，不构成认证或合规声明。"
 }
