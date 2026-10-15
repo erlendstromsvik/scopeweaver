@@ -4,25 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/Autumn-27/artex/blueprint"
+	"github.com/Autumn-27/artex/internal/dbtest"
 	"github.com/Autumn-27/artex/provision"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // TestApplyBlueprint is the DB-backed integration test for boot-time blueprint
-// provisioning. It is GUARDED on ARTEX_TEST_DSN and skips when it is unset —
+// provisioning. It resolves its DSN through dbtest, which skips when
+// ARTEX_TEST_DSN is unset and fails fast if it points at the live database —
 // it NEVER falls back to the app DSN / config.PostgresDSN() (that is the Track A
 // footgun that wrote fixtures into production). The controller runs it against a
 // throwaway Postgres: live check: controller.
 func TestApplyBlueprint(t *testing.T) {
-	dsn := os.Getenv("ARTEX_TEST_DSN")
-	if dsn == "" {
-		t.Skip("ARTEX_TEST_DSN not set; skipping DB-backed blueprint provisioning test (live check: controller)")
-	}
+	dsn := dbtest.DSN(t)
 	// Point the Manager/DB at the throwaway test database only. db.DSN precedence
 	// is env ARTEX_PG_DSN > config file, so this wins without reading config.json.
 	t.Setenv("ARTEX_PG_DSN", dsn)

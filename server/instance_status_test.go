@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 // instanceStatusTestServer builds a DB-backed Server with a JWT-authenticated
@@ -23,20 +23,8 @@ import (
 // fixture gets 401 from the auth middleware.
 func instanceStatusTestServer(t *testing.T) (*Server, func(method, path, body string) *httptest.ResponseRecorder) {
 	t.Helper()
-	// The sandbox points ARTEX_PG_DSN at a closed port: skip, never fail.
-	dsn, _, err := db.DSN()
-	if err != nil {
-		t.Skipf("no database config (%v) — skipping (live check: controller)", err)
-	}
-	conn, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Skipf("open postgres (%v) — skipping (live check: controller)", err)
-	}
-	pingErr := conn.Ping()
-	conn.Close()
-	if pingErr != nil {
-		t.Skipf("ping postgres (%v) — skipping (live check: controller)", pingErr)
-	}
+	// Skip unless ARTEX_TEST_DSN points at a throwaway DB; never the app DSN.
+	_ = dbtest.DSN(t)
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
