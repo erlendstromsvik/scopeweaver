@@ -60,6 +60,10 @@ func run() int {
 		// blueprint YAML (admin auth, company+scope, constraints, LLM profile,
 		// task) and admits the task at boot. Empty = unchanged behaviour.
 		blueprintPath = flag.String("blueprint", "", "path to a provisioning blueprint YAML; seed and start the instance at boot (empty to disable)")
+		// deliverableDir, when set, enables the deliverable bundle export:
+		// POST /api/instance/deliverable writes the run's findings, evidence
+		// and assets into a timestamped directory under here (task D.4a).
+		deliverableDir = flag.String("deliverable-dir", "", "directory the deliverable bundle is written to (empty disables)")
 	)
 	flag.Parse()
 
@@ -118,6 +122,7 @@ func run() int {
 	}
 	log.Printf(locale.Text(locale.ServerDefault(), "[config] Skill directory: %s"), skillDir)
 	srv := server.New(ctx, mgr, skillDir, *dataDir, config.BaseDir())
+	srv.SetDeliverableDir(*deliverableDir)
 
 	// Blueprint boot mode: seed and admit the instance before serving. The stores
 	// are open and restoreTaskRuntimes has resumed any prior run; nothing is

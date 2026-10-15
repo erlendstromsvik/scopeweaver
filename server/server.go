@@ -120,7 +120,12 @@ type Server struct {
 	// channel coalesces enqueue bursts; the database remains the source of truth.
 	archiveWake chan struct{}
 	archiveWG   sync.WaitGroup
-	side        *sideQuestionState
+
+	// deliverableDir is the host-mounted directory the deliverable bundle is
+	// written to by POST /api/instance/deliverable (task D.4a). Empty disables
+	// the export; set once at boot via SetDeliverableDir.
+	deliverableDir string
+	side           *sideQuestionState
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -684,7 +689,11 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/stats", s.stats)
+
 	mux.HandleFunc("GET /api/instance/status", s.instanceStatusHandler)
+	// Deliverable export (D.4a): normal JWT auth, no exemption — the same
+	// policy as the update endpoints below.
+	mux.HandleFunc("POST /api/instance/deliverable", s.deliverableHandler)
 	mux.HandleFunc("GET /api/logs", s.getLogs)
 	mux.HandleFunc("GET /api/logs/history", s.getLogsHistory)
 	mux.HandleFunc("GET /api/logs/stream", s.streamLogs)

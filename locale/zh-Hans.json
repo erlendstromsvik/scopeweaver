@@ -1873,5 +1873,10 @@
   "[evidence] upgrade %s: %v": "[evidence] 升级 %s：%v",
   "[evidence] tool schema: %v": "[evidence] 工具 schema：%v",
   "[evidence] upgrade tool %s: %v": "[evidence] 升级工具 %s：%v",
-  "[retest %d] finish: %v": "[retest %d] 完成：%v"
+  "[retest %d] finish: %v": "[retest %d] 完成：%v",
+  "deliverable directory is not configured": "未配置交付物目录",
+  "instance is not provisioned; no deliverable": "实例尚未配置，无交付物",
+  "blueprint task id is missing; no deliverable": "缺少蓝图任务 id，无交付物",
+  "task is not terminal yet; deliverable unavailable": "任务尚未进入终态，交付物不可用",
+  "deliverable already exists: %s": "交付物已存在：%s"
 }
