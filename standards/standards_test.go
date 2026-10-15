@@ -45,18 +45,27 @@ func TestValidateRealSourcesPasses(t *testing.T) {
 	}
 }
 
-func TestEmptyCrosswalkFileValidates(t *testing.T) {
+// TestShippedCrosswalkValidates checks that the generated crosswalk.yaml loads,
+// is populated, and validates against the real catalog. It was previously
+// TestEmptyCrosswalkFileValidates (asserting the placeholder was empty); E.9
+// populates the file via DeriveCrosswalk, so it now asserts the opposite.
+func TestShippedCrosswalkValidates(t *testing.T) {
 	links, err := LoadCrosswalk("crosswalk.yaml")
 	if err != nil {
 		t.Fatalf("LoadCrosswalk(crosswalk.yaml): %v", err)
 	}
-	if len(links) != 0 {
-		t.Fatalf("shipped crosswalk.yaml should be empty, got %d links", len(links))
+	if len(links) == 0 {
+		t.Fatal("shipped crosswalk.yaml is empty; run `go generate ./standards/`")
+	}
+	for i, l := range links {
+		if l.Source == "" || l.Confidence == "" {
+			t.Errorf("link %d: missing source/confidence (source=%q confidence=%q)", i, l.Source, l.Confidence)
+		}
 	}
 	c := loadRealCatalog(t)
 	c.Crosswalk = links
 	if err := c.Validate(); err != nil {
-		t.Fatalf("Validate() with empty crosswalk: %v", err)
+		t.Fatalf("Validate() on shipped crosswalk: %v", err)
 	}
 }
 

@@ -64,10 +64,14 @@ type Ref struct {
 	ID     string `yaml:"id"`
 }
 
-// CrosswalkLink connects two references across (or within) schemes.
+// CrosswalkLink connects two references across (or within) schemes. The links
+// are advisory, not authoritative: Source names how the link was derived and
+// Confidence grades it (see DeriveCrosswalk and roadmap task E-D5).
 type CrosswalkLink struct {
-	From Ref `yaml:"from"`
-	To   Ref `yaml:"to"`
+	From       Ref    `yaml:"from"`
+	To         Ref    `yaml:"to"`
+	Source     string `yaml:"source"`
+	Confidence string `yaml:"confidence"`
 }
 
 // Catalog holds the parsed standards data and any crosswalk links. Maps are
