@@ -91,7 +91,7 @@ func TestInvalidFixtures(t *testing.T) {
 			"llm.provider: required", "llm.model: required", "llm.base_url: required", "llm.max_tokens:",
 		}},
 		{"testdata/invalid-provider.yaml", []string{
-			`llm.provider: unknown provider "ollama"`, "allowed:", "openai-compatible",
+			`llm.provider: unknown provider "gemini"`, "allowed:", "openai-compatible",
 		}},
 		{"testdata/inline-apikey.yaml", []string{"llm.api_key: inline secret not allowed"}},
 		{"testdata/inline-password.yaml", []string{"admin.password: inline secret not allowed"}},

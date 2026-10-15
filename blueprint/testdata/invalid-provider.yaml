@@ -30,7 +30,7 @@ runtime:
   llm_max_concurrent: 2
   web_search_enabled: false
 llm:
-  provider: ollama
+  provider: gemini
   model: qwen-3.8
   base_url: http://localhost:11434/v1
   api_key: ${env:ARTEX_LLM_API_KEY}

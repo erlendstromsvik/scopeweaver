@@ -57,15 +57,16 @@ var (
 
 	// providerFormats maps each accepted llm.provider to the ScopeWeaver wire
 	// "format" the database stores. db.llm_profiles.format has a CHECK of
-	// ('openai','anthropic','openai-responses'), so provider names that are not
-	// one of those must be translated. "openai-compatible" covers a local model
-	// served behind an OpenAI-compatible API and uses the "openai" format with a
-	// configurable base_url. The key set is exactly the accepted providers.
+	// ('openai','anthropic','openai-responses','ollama'), so provider names that
+	// are not one of those must be translated. "openai-compatible" covers a local
+	// model served behind an OpenAI-compatible API and uses the "openai" format
+	// with a configurable base_url. The key set is exactly the accepted providers.
 	providerFormats = map[string]string{
 		"openai":            "openai",
 		"openai-compatible": "openai",
 		"anthropic":         "anthropic",
 		"openai-responses":  "openai-responses",
+		"ollama":            "ollama",
 	}
 )
 

@@ -270,6 +270,7 @@ func TestBuildPlanProviderFormat(t *testing.T) {
 		{"openai-compatible maps to openai", "openai-compatible", "openai", false},
 		{"anthropic", "anthropic", "anthropic", false},
 		{"openai-responses", "openai-responses", "openai-responses", false},
+		{"ollama", "ollama", "ollama", false},
 		{"empty", "", "", true},
 		{"unknown", "gpt-foo", "", true},
 		{"case-sensitive", "OpenAI", "", true},
