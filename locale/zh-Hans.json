@@ -1,4 +1,8 @@
 {
+  "parse NSM RSS feed: %v": "解析 NSM RSS 源：%v",
+  "NSM RSS feed has no channel": "NSM RSS 源没有 channel",
+  "NSM RSS item missing link (title %q)": "NSM RSS 条目缺少 link（标题 %q）",
+  "parse NSM RSS pubDate %q for item %q: %v": "解析 %[2]q 条目的 NSM RSS pubDate %[1]q：%[3]v",
   "parse CISA KEV catalog: %v": "解析 CISA KEV 目录：%v",
   "CISA KEV count field %d does not match %d entries": "CISA KEV count 字段 %d 与 %d 个条目不匹配",
   "CISA KEV entry missing cveID (product %q)": "CISA KEV 条目缺少 cveID（产品 %q）",

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="0.92">
+<channel>
+    <title>Sårbarhetsvarsler fra NSM</title>
+    <link>https://nsm.no/</link>
+    <description></description>
+                            <item>
+            <title>Microsoft patchetirsdag oktober 2026</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/microsoft-patchetirsdag-oktober-2026</link>
+            <description>&lt;p&gt;&lt;span&gt;Microsoft har offentliggjort sine månedlige sikkerhetsoppdateringer. NSM har ingen spesifikke sårbarheter å fremheve.&amp;nbsp;&lt;/span&gt;&lt;/p&gt;</description>
+            <pubDate>Tue, 13 Oct 2026 22:53:32 +0200</pubDate>
+        </item>
+            <item>
+            <title>Sikkerhetsoppdatering tilgjengelig for Citrix Netscaler</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/sikkerhetsoppdatering-tilgjengelig-for-citrix-netscaler</link>
+            <description>&lt;p&gt;Citrix har sikkerhetsoppdatering som lukker aktivt utnyttet nulldagssårbarhet i Citrix Netscaler. Oppdatering for varsel fra 3. oktober.&amp;nbsp;&lt;/p&gt;</description>
+            <pubDate>Sun, 04 Oct 2026 14:08:55 +0200</pubDate>
+        </item>
+            <item>
+            <title>Ny sårbarhet i Citrix Netscaler observert aktivt utnyttet</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/ny-sarbarhet-i-citrix-netscaler-observert-aktivt-utnyttet</link>
+            <description>&lt;p&gt;Se konkrete anbefalinger fra NSM. Virksomheter anbefales også å gjøre grundige undersøkelser på Citrix Netscaler-instansene sine.&amp;nbsp;&lt;/p&gt;</description>
+            <pubDate>Sat, 03 Oct 2026 11:25:02 +0200</pubDate>
+        </item>
+            <item>
+            <title>Aktivt utnyttelse av kritiske sårbarheter i Citrix Netscaler</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/aktivt-utnyttelse-av-kritiske-sarbarheter-i-citrix-netscaler</link>
+            <description>&lt;p&gt;&lt;span&gt;NSM ønsker å fremheve CVE-2026-88771 (KRITISK) og CVE-2026-88772 (KRITISK) da disse sårbarhetene er blitt observert å ha blitt utnyttet.&lt;/span&gt;&lt;/p&gt;</description>
+            <pubDate>Sun, 27 Sep 2026 20:05:15 +0200</pubDate>
+        </item>
+            <item>
+            <title>Microsoft patchetirsdag september 2026</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/microsoft-patchetirsdag-september-2026</link>
+            <description>&lt;p&gt;&lt;span&gt;Microsoft har offentliggjort sine månedlige sikkerhetsoppdateringer&lt;sup&gt;1&lt;/sup&gt;.&amp;nbsp;&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&amp;nbsp;&lt;/p&gt;</description>
+            <pubDate>Tue, 08 Sep 2026 21:49:36 +0200</pubDate>
+        </item>
+            <item>
+            <title>Kritisk sårbarhet i Citrix NetScaler</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/kritisk-sarbarhet-i-citrix-netscaler</link>
+            <description>&lt;p&gt;&lt;span&gt;Citrix publiserte onsdag 19. august detaljer om to nye sårbarheter i NetScaler ADC og NetScaler Gateway. NSM forventer at sårbarhetene vil bli utnyttet.&lt;/span&gt;&lt;/p&gt;</description>
+            <pubDate>Thu, 20 Aug 2026 13:35:43 +0200</pubDate>
+        </item>
+            <item>
+            <title>Microsoft patchetirsdag juli 2026</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/microsoft-patchetirsdag-juli-2026</link>
+            <description>&lt;p&gt;NSM har ingen bemerkninger til Microsofts sikkerhetsoppdateringer for juli 2026. &amp;nbsp;&lt;/p&gt;</description>
+            <pubDate>Tue, 14 Jul 2026 23:11:10 +0200</pubDate>
+        </item>
+            <item>
+            <title>Microsoft patchetirsdag juni</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/microsoft-patchetirsdag-juni</link>
+            <description>&lt;p&gt;&lt;span style=&quot;font-size:11.0pt&quot;&gt;&lt;span style=&quot;font-family:&amp;quot;Calibri&amp;quot;,sans-serif&quot;&gt;Microsoft har offentliggjort sine månedlige &lt;a href=&quot;https://urldefense.com/v3/__https://portal.msrc.microsoft.com/en-us/security-guidance__;!!Nq5e9Ls!kSJMMNoWSEfPI09uB23N0B55WlQ4rPCYOD9w5cj7b-W7_AAj_Vy2GiwaQn2BYuIr5k9kwkMuzOTx-X23mEU$&quot;&gt;sikkerhetsoppdateringer&lt;/a&gt;.&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
+</description>
+            <pubDate>Tue, 09 Jun 2026 20:19:46 +0200</pubDate>
+        </item>
+            <item>
+            <title>Microsoft patchetirsdag mai</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/microsoft-patchetirsdag-mai</link>
+            <description>&lt;p&gt;&lt;span style=&quot;font-size:11pt&quot;&gt;&lt;span style=&quot;font-family:Calibri,sans-serif&quot;&gt;30 sårbarheter vurdert som kritiske av Microsoft. Detaljer om disse sårbarhetene kommer frem &amp;nbsp;Microsofts månedlige sikkerhetsoppdatering.&amp;nbsp;&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
+</description>
+            <pubDate>Tue, 12 May 2026 20:57:43 +0200</pubDate>
+        </item>
+            <item>
+            <title>Ny alvorlig sårbarhet i Linux-kjernen</title>
+            <link>https://nsm.no/fagomrader/digital-sikkerhet/digital-hendelseshandtering/varsler-fra-nsm/ny-alvorlig-sarbarhet-i-linux</link>
+            <description>&lt;p&gt;NSM varslet 30. april på en alvorlig sårbarhet i Linux-kjernen med betegnelse CVE-2026-31431, døpt Copy Fail. Det er nå blitt publisert en ny, lignende sårbarhet i Linux-kjernen som blir omtalt som Dirty Frag.&lt;/p&gt;
+</description>
+            <pubDate>Fri, 08 May 2026 13:06:44 +0200</pubDate>
+        </item>
+    </channel>
+</rss>
