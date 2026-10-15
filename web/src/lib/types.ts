@@ -147,6 +147,36 @@ export interface ArchiveBatchItem {
   error?: string;
 }
 
+// ---- Blueprint instance deliverable (ephemeral instances, task D.4c) ----
+export interface InstanceStatus {
+  provisioned: boolean;
+  blueprint?: string;
+  task_id?: string;
+  status?: string;
+  terminal: boolean;
+  findings: number;
+  assets: number;
+}
+
+export interface DeliverableFile {
+  name: string;
+  size: number;
+  sha256: string;
+}
+
+export interface DeliverableManifest {
+  instance: string;
+  task_id: string;
+  status: string;
+  created_at: string;
+  files: DeliverableFile[];
+}
+
+export interface DeliverableResult {
+  dir: string;
+  manifest: DeliverableManifest;
+}
+
 // ---- Asset graph (global, shared across tasks) ----
 export type AssetType =
   | "company"
