@@ -1,0 +1,48 @@
+Vendored standards source data — attribution and licensing
+===========================================================
+
+This directory contains verbatim copies of third-party security-standard
+sources, redistributed here under their respective licenses. These files are
+NOT covered by the ScopeWeaver project license; each retains the license below.
+See README.md for exact versions, source URLs and checksums.
+
+-----------------------------------------------------------------------
+OWASP Application Security Verification Standard (ASVS) 5.0.0
+  Files:   asvs/OWASP_ASVS_5.0.0_en.flat.json, asvs/OWASP_ASVS_5.0.0_en.csv
+  Source:  https://github.com/OWASP/ASVS (tag v5.0.0)
+  License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+           https://creativecommons.org/licenses/by-sa/4.0/
+  (c) The OWASP Foundation. Redistributed verbatim with attribution.
+
+OWASP Web Security Testing Guide (WSTG) — checklist
+  Files:   wstg/checklist.json
+  Source:  https://github.com/OWASP/wstg (checklists/checklist.json, master)
+  License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+           https://creativecommons.org/licenses/by-sa/4.0/
+  (c) The OWASP Foundation. Redistributed verbatim with attribution.
+
+OWASP Top 10:2025 — category list
+  Files:   owasp-top10/top10-2025-categories.yaml (transcribed, not verbatim)
+  Source:  https://top10.owasp.org/2025/
+  License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+           https://creativecommons.org/licenses/by-sa/4.0/
+  (c) The OWASP Foundation. Category codes and titles transcribed with attribution.
+
+CWE (Common Weakness Enumeration) 4.20
+  Files:   cwe/cwec_v4.20.xml.zip
+  Source:  https://cwe.mitre.org/data/xml/cwec_latest.xml.zip
+  Terms:   Use of the Common Weakness Enumeration and the associated references
+           is subject to MITRE's Terms of Use (https://cwe.mitre.org/about/termsofuse.html).
+           CWE is a trademark of The MITRE Corporation. Redistributed with attribution.
+
+CISA Known Exploited Vulnerabilities (KEV) Catalog — snapshot
+  Files:   cisa-kev/known_exploited_vulnerabilities.2026-10-15.json
+  Source:  https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+  Status:  U.S. Government work; in the public domain in the United States
+           (https://www.cisa.gov/known-exploited-vulnerabilities-catalog).
+-----------------------------------------------------------------------
+
+Note on CC BY-SA ShareAlike: these files are redistributed verbatim as separate
+data files, not merged into or used to produce adapted works commingled with
+ScopeWeaver's own licensed code. Keep derived catalog data (Track E.1) attributed
+to its source so the ShareAlike condition is satisfied.

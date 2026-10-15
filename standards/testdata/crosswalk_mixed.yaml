@@ -1,0 +1,8 @@
+# Test fixture only: one link that resolves against the real catalog and one
+# whose To ref dangles. Not committed catalog data; proves the dangling-ref
+# validator. (standards/crosswalk.yaml ships empty, per E-D5.)
+links:
+  - from: { scheme: asvs, id: "V1.1.1" }
+    to:   { scheme: wstg, id: "WSTG-INFO-01" }
+  - from: { scheme: asvs, id: "V1.1.1" }
+    to:   { scheme: cwe,  id: "99999999" }

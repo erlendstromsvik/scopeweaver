@@ -1,0 +1,15 @@
+{
+  "categories": {
+    "Information Gathering": {
+      "id": "WSTG-INFO",
+      "tests": [
+        {
+          "name": "Malformed identifier",
+          "id": "WSTG-INFO-1X",
+          "reference": "https://example.invalid/",
+          "objectives": ["Trigger the WSTG id pattern check."]
+        }
+      ]
+    }
+  }
+}

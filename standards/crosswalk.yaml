@@ -1,0 +1,16 @@
+# Cross-scheme crosswalk for the standards catalog.
+#
+# This file maps references across the schemes in the catalog (ASVS <-> WSTG <->
+# CWE <-> OWASP Top 10). Each link is {from: {scheme, id}, to: {scheme, id}} and
+# every ref must resolve in its catalog, or standards.Validate rejects it.
+#
+# It is intentionally EMPTY. ASVS 5.0 removed per-requirement CWE mappings, and
+# WSTG/Top 10 CWE associations are not vendored, so authoring cross-scheme links
+# now would mean fabricating them. Linking is deferred to roadmap task E-D5,
+# which will source the mappings before any links are added here.
+#
+# To add links later, replace the empty list, e.g.:
+#   links:
+#     - from: { scheme: asvs, id: "V1.2.1" }
+#       to:   { scheme: cwe,  id: "116" }
+links: []

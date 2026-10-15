@@ -1,0 +1,22 @@
+{
+  "requirements": [
+    {
+      "chapter_id": "V1",
+      "chapter_name": "Encoding and Sanitization",
+      "section_id": "V1.1",
+      "section_name": "Architecture",
+      "req_id": "V1.1.1",
+      "req_description": "First requirement.",
+      "L": "2"
+    },
+    {
+      "chapter_id": "V1",
+      "chapter_name": "Encoding and Sanitization",
+      "section_id": "V1.1",
+      "section_name": "Architecture",
+      "req_id": "V1.1.1",
+      "req_description": "Duplicate of the same req_id.",
+      "L": "2"
+    }
+  ]
+}
