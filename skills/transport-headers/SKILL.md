@@ -39,7 +39,7 @@ If a check would need a prohibited action, record `inconclusive` with the reason
    openssl s_client -connect host:443 -tls1_3 </dev/null   # expect success
    ```
    Then note the negotiated cipher and the server's cipher preference, and inspect the certificate: chain trust, expiry, hostname match, key/signature strength.
-3. **Headers.** On a representative set of in-scope responses (`GET`/`HEAD`), read: `Strict-Transport-Security`, `Content-Security-Policy` (including `frame-ancestors`), `X-Content-Type-Options`, `Referrer-Policy`.
+3. **Headers.** On a representative set of in-scope responses (`GET`/`HEAD`), read: `Strict-Transport-Security`, `Content-Security-Policy` (including `frame-ancestors`, `object-src`, `base-uri`), `X-Content-Type-Options`, `Referrer-Policy`, and version-leaking headers (`Server`, `X-Powered-By`).
 4. **Cookies.** From `Set-Cookie` on those responses: `Secure`, `HttpOnly` (where the value need not be script-readable), `SameSite`, and the `__Host-` / `__Secure-` prefix conventions.
 5. **WSS.** For WebSocket endpoints already in the inventory, issue the upgrade over TLS and confirm it is served over WSS (not plain WS) and that the upgrade response carries the same header posture. Do not send messages.
 
@@ -49,27 +49,27 @@ Save every command and its output; the saved output pointer is the evidence for 
 
 ## Mapping: requirement → check → verdict
 
-| ID | Check | pass | fail | inconclusive |
+| ID | Requirement (official, abridged) | pass | fail | inconclusive |
 |---|---|---|---|---|
-| V12.1.1 | TLS in use for every in-scope service | All in-scope services serve TLS only | A service is reachable over plain HTTP | Service not reachable / TLS state not observable |
-| V12.1.2 | Modern TLS only | Only TLS 1.2/1.3 accepted | TLS 1.0/1.1 or SSL accepted | Version probes blocked or inconclusive at the network |
-| V12.2.1 | Certificate trusted by a public CA | Chain validates to a trusted root | Self-signed / untrusted chain | No trust store available to verify |
-| V12.2.2 | Certificate valid (not expired, hostname matches) | In date and hostname matches | Expired or hostname mismatch | Certificate not retrievable |
-| V3.4.1 | Sensitive data not cached in transit | `Cache-Control: no-store` on sensitive responses | Sensitive response cacheable | Cannot identify which responses are sensitive |
-| V3.4.3 | HSTS present and effective | `Strict-Transport-Security` with `max-age` (≥1y) and `includeSubDomains` where applicable | Missing HSTS on an HTTPS-only service | Mixed-scope; header presence not representative |
-| V3.4.4 | Valid certificate (extended validation posture) | Chain + validity + hostname all pass | Any of chain/validity/hostname fails | Partially observable |
-| V3.4.5 | Strong cipher / key strength | Modern AEAD ciphers; key ≥2048-bit RSA or EC | Weak/export/RC4/SHA-1 or short key | Cipher negotiation not observable |
-| V3.4.6 | TLS configuration hardened (no known-weak suites) | No weak suites offered | Any weak suite offered | Probe blocked |
-| V3.3.1 | Cookies set with `Secure` | Every cookie over HTTPS carries `Secure` | A cookie lacks `Secure` | No cookies observed (see not_applicable) |
-| V3.3.2 | Session cookies `HttpOnly` | Session cookies set `HttpOnly` | Session cookie readable by script | Cannot tell which cookies are session cookies |
-| V3.3.3 | Cookie `SameSite` attribute | `SameSite=Lax`/`Strict` present | Missing `SameSite` on a session cookie | Ambiguous cookie purpose |
-| V3.3.4 | Cookie path/domain scoped | Path/domain narrow to the app | Overly broad domain/path | Not observable |
-| V4.4.1 | File-upload / sensitive-entry endpoints over TLS | Covered by TLS-only posture | Upload or credential entry over plain HTTP | No such endpoint in scope |
-| WSTG-CRYP-01 | Testing for weak TLS / broken transport | Modern TLS, strong ciphers | Weak protocol or cipher accepted | Probe blocked |
-| WSTG-CONF-07 | Testing for cookies (attributes) | Cookie attributes correct | Attribute missing/wrong | No cookies set |
-| WSTG-CONF-12 | Testing for advanced header/SSRF-adjacent config | Header posture consistent | Header missing/inconsistent | Not observable |
-| WSTG-CONF-14 | Testing for CORS / cross-origin header config | CORS not overly permissive | `Access-Control-Allow-Origin: *` with credentials | No CORS headers to judge |
-| WSTG-SESS-02 | Testing cookies for session management | Session cookie flags correct | Session cookie unprotected | Cannot identify session cookie |
+| V12.1.1 | Only the latest recommended TLS versions (TLS 1.2 and 1.3) are enabled | Only TLS 1.2/1.3 accepted | TLS 1.1 or older (or SSL) accepted | Version probes blocked or not observable |
+| V12.1.2 | Only recommended cipher suites, strongest preferred | Only recommended (AEAD, forward-secret) suites offered, strongest first | A weak suite is offered (RC4, 3DES, CBC-SHA1, export, NULL) | Cipher negotiation not observable |
+| V12.2.1 | TLS for all client connectivity to external HTTP services, no fallback to insecure protocols | Every in-scope service is HTTPS-only (HTTP redirects to HTTPS or is closed) | A service serves content over plain HTTP | Service unreachable |
+| V12.2.2 | External services use publicly trusted certificates | Chain validates to a public root, in date, hostname matches | Self-signed, untrusted, expired or mismatched | No trust store / certificate not retrievable |
+| V3.4.1 | Strict-Transport-Security on all responses (max-age >= 1 year; includeSubDomains at L2+) | HSTS present with max-age >= 31536000 on sampled responses | HSTS missing or max-age too short | Only some responses observable |
+| V3.4.3 | Content-Security-Policy header present (object-src 'none', base-uri 'none' at minimum) | CSP present with those directives | CSP missing or lacks them | CSP present but only report-only, or not on all sampled responses |
+| V3.4.4 | X-Content-Type-Options: nosniff on all responses | Present on all sampled responses | Missing on any sampled response | Too few responses observable |
+| V3.4.5 | Referrer policy set to prevent leaking sensitive data to third parties | Referrer-Policy (header or meta) set to a non-leaking value such as strict-origin-when-cross-origin or no-referrer | Missing, or unsafe-url | Only some responses observable |
+| V3.4.6 | CSP frame-ancestors directive controls embedding (X-Frame-Options is not enough) | frame-ancestors present and restrictive | frame-ancestors missing | CSP not on all sampled responses |
+| V3.3.1 | Cookies have Secure (and __Secure- prefix where __Host- is not used) | Every cookie set over HTTPS has Secure | A cookie lacks Secure | No cookies set -> not_applicable |
+| V3.3.2 | SameSite set according to the cookie's purpose | Every cookie has an explicit SameSite matching its use | A cookie lacks SameSite or uses None without need | Cookie purpose unclear |
+| V3.3.3 | __Host- prefix unless the cookie must be shared with other hosts | Cookies use __Host- or are documented as shared | A host-only cookie lacks __Host- | Sharing need unknown |
+| V3.3.4 | Cookies not meant for scripts (e.g. session tokens) have HttpOnly | Session cookies set HttpOnly | A session cookie lacks HttpOnly | Cannot tell which cookies are session cookies |
+| V4.4.1 | WebSocket over TLS (WSS) for all WebSocket connections | All inventory WebSocket endpoints use wss:// | A ws:// endpoint exists | No WebSocket endpoints -> not_applicable |
+| WSTG-CRYP-01 | Testing for Weak Transport Layer Security | Protocols, suites and certificate all sound | Any weakness found under V12.1.x/V12.2.x | Probes blocked |
+| WSTG-CONF-07 | Test HTTP Strict Transport Security | Same as V3.4.1 | Same as V3.4.1 | Same as V3.4.1 |
+| WSTG-CONF-12 | Test for Content Security Policy | CSP present and meaningful (V3.4.3 + V3.4.6) | CSP missing or ineffective | Not on all sampled responses |
+| WSTG-CONF-14 | Test Other HTTP Security Header Misconfigurations | X-Content-Type-Options and Referrer-Policy as above, no information-leaking headers (e.g. detailed Server/X-Powered-By versions) | Header missing or leaking versions | Too few responses observable |
+| WSTG-SESS-02 | Testing for Cookies Attributes | Secure, HttpOnly (session), SameSite, prefixes as above | Any session-cookie attribute missing | Cannot identify session cookies |
 
 ---
 
