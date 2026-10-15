@@ -5,6 +5,7 @@
 - [Setup and operation](../README.md)
 - [Provenance and modifications](PROVENANCE.md)
 - [Verification and known limitations](VERIFICATION.md)
+- [Ephemeral blueprint instances](instances.md)
 - [LLM provider templates](llm-providers.md)
 - [Claude Code, Codex and Pi adapter](../adapters/agent/README.md)
 - [Traffic evidence](traffic-evidence.md)
