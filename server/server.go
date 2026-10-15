@@ -748,6 +748,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/tasks/{id}/goals/{gid}", s.deleteGoal)             // Goal management: hard-delete a goal without revival.
 	mux.HandleFunc("GET /api/tasks/{id}/constraints", s.listConstraints)           // Constraint management: list task operation constraints.
 	mux.HandleFunc("GET /api/tasks/{id}/control-results", s.listControlResults)    // Control results: list a task's per-requirement verdicts.
+	mux.HandleFunc("GET /api/tasks/{id}/coverage-report", s.coverageReport)        // Coverage report: export a task's standards coverage as md/json/csv.
 	mux.HandleFunc("POST /api/tasks/{id}/constraints", s.addConstraint)            // Constraint management: add without notifying the planner.
 	mux.HandleFunc("PATCH /api/tasks/{id}/constraints/{cid}", s.editConstraint)    // Constraint management: edit.
 	mux.HandleFunc("DELETE /api/tasks/{id}/constraints/{cid}", s.deleteConstraint) // Constraint management: delete.

@@ -1,6 +1,9 @@
 package report
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -35,31 +38,31 @@ type CoverageInput struct {
 // CoverageRow is one in-scope requirement with its recorded result. An empty
 // Verdict means no result was recorded for the requirement.
 type CoverageRow struct {
-	Standard       string
-	RequirementID  string
-	Level          int
-	Verdict        string
-	Method         string
-	EvidenceRef    string
-	Reason         string
-	LinkedFindings []int64
+	Standard       string  `json:"standard"`
+	RequirementID  string  `json:"requirement_id"`
+	Level          int     `json:"level"`
+	Verdict        string  `json:"verdict"`
+	Method         string  `json:"method"`
+	EvidenceRef    string  `json:"evidence_ref"`
+	Reason         string  `json:"reason"`
+	LinkedFindings []int64 `json:"linked_findings"`
 }
 
 // CoverageSummary counts one scope entry. InScope counts every rendered row;
 // Applicable excludes not_applicable; Verified counts pass+fail+partial.
 type CoverageSummary struct {
-	Standard      string
-	MaxLevel      int
-	InScope       int
-	Applicable    int
-	Verified      int
-	Pass          int
-	Fail          int
-	Partial       int
-	NotApplicable int
-	Inconclusive  int
-	NotTested     int
-	NoResult      int
+	Standard      string `json:"standard"`
+	MaxLevel      int    `json:"max_level"`
+	InScope       int    `json:"in_scope"`
+	Applicable    int    `json:"applicable"`
+	Verified      int    `json:"verified"`
+	Pass          int    `json:"pass"`
+	Fail          int    `json:"fail"`
+	Partial       int    `json:"partial"`
+	NotApplicable int    `json:"not_applicable"`
+	Inconclusive  int    `json:"inconclusive"`
+	NotTested     int    `json:"not_tested"`
+	NoResult      int    `json:"no_result"`
 }
 
 // BuildCoverage pairs each in-scope catalog requirement with its control
@@ -274,6 +277,87 @@ func CoverageMarkdown(in CoverageInput, generated time.Time, langs ...locale.Lan
 	}
 	b.WriteString("- " + locale.Text(lang, "This report states what was verified and how. It is not a certification or a statement of compliance.") + "\n")
 	return b.String()
+}
+
+// coverageJSONDoc is the machine-readable coverage report envelope.
+type coverageJSONDoc struct {
+	Generated  string            `json:"generated"`
+	Summaries  []CoverageSummary `json:"summaries"`
+	Rows       []CoverageRow     `json:"rows"`
+	OutOfScope int               `json:"out_of_scope"`
+}
+
+// CoverageJSON renders the coverage matrix as indented JSON: the generation
+// timestamp in RFC3339 UTC, the per-standard summaries, every in-scope row,
+// and the count of results that fell outside the selected scope. Empty
+// summaries/rows marshal as [] (never null) so consumers can iterate blindly;
+// a row's linked_findings is normalized to [] the same way.
+func CoverageJSON(in CoverageInput, generated time.Time) ([]byte, error) {
+	summaries, rows, outOfScope := BuildCoverage(in)
+	if summaries == nil {
+		summaries = []CoverageSummary{}
+	}
+	if rows == nil {
+		rows = []CoverageRow{}
+	}
+	for i := range rows {
+		if rows[i].LinkedFindings == nil {
+			rows[i].LinkedFindings = []int64{}
+		}
+	}
+	doc := coverageJSONDoc{
+		Generated:  generated.UTC().Format(time.RFC3339),
+		Summaries:  summaries,
+		Rows:       rows,
+		OutOfScope: outOfScope,
+	}
+	return json.MarshalIndent(doc, "", "  ")
+}
+
+// CoverageCSV renders the coverage matrix as CSV with a UTF-8 BOM for Excel.
+// One row per in-scope requirement, in the same order as the Markdown matrix.
+// The Level column is empty for WSTG (its tests carry no ASVS level) and the
+// Verdict column is empty when no result was recorded. Linked findings render
+// as a comma-separated id list ("12,15").
+func CoverageCSV(in CoverageInput, langs ...locale.Lang) []byte {
+	lang := locale.First(langs)
+	_, rows, _ := BuildCoverage(in)
+
+	var buf bytes.Buffer
+	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
+	w := csv.NewWriter(&buf)
+	_ = w.Write([]string{
+		locale.Text(lang, "Standard"),
+		locale.Text(lang, "Requirement"),
+		locale.Text(lang, "Level"),
+		locale.Text(lang, "Verdict"),
+		locale.Text(lang, "Method"),
+		locale.Text(lang, "Evidence"),
+		locale.Text(lang, "Findings"),
+		locale.Text(lang, "Reason"),
+	})
+	for _, row := range rows {
+		level := ""
+		if row.Standard == db.StandardASVS {
+			level = fmt.Sprintf("%d", row.Level)
+		}
+		findings := make([]string, 0, len(row.LinkedFindings))
+		for _, id := range row.LinkedFindings {
+			findings = append(findings, fmt.Sprintf("%d", id))
+		}
+		_ = w.Write([]string{
+			row.Standard,
+			row.RequirementID,
+			level,
+			row.Verdict,
+			row.Method,
+			row.EvidenceRef,
+			strings.Join(findings, ","),
+			row.Reason,
+		})
+	}
+	w.Flush()
+	return buf.Bytes()
 }
 
 // findingsCell renders linked finding ids as "#12, #15" (empty when none).

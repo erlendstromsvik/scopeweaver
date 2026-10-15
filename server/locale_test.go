@@ -89,8 +89,8 @@ func TestAllProductionPackagesHaveRawShippedTranslations(t *testing.T) {
 		}
 		production = append(production, key)
 	}
-	if len(production) != 1966 {
-		t.Fatalf("production key count %d, want 1966 (1902 base + 29 Ollama + 1 DeepSeek policy + 20 external + 1 finding-ref catalog + 13 coverage report)", len(production))
+	if len(production) != 1974 {
+		t.Fatalf("production key count %d, want 1974 (1902 base + 29 Ollama + 1 DeepSeek policy + 20 external + 1 finding-ref catalog + 13 coverage report + 8 coverage export)", len(production))
 	}
 	if err := locale.ValidateTextTranslations(production); err != nil {
 		t.Fatal(err)

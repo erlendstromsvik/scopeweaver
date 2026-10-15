@@ -70,4 +70,14 @@ func init() {
 	Register("%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n", "%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n", "%d개의 %s 요구 사항을 테스트하지 않았고, %d개는 불확실하며, %d개는 기록된 결과가 없습니다.\n")
 	Register("%d recorded results were outside the selected scope and are not counted.\n", "%d recorded results were outside the selected scope and are not counted.\n", "기록된 결과 %d개는 선택된 범위 밖이므로 계산에 포함되지 않습니다.\n")
 	Register("This report states what was verified and how. It is not a certification or a statement of compliance.", "This report states what was verified and how. It is not a certification or a statement of compliance.", "이 보고서는 검증한 내용과 방법을 명시합니다. 인증이나 컴플라이언스 선언이 아닙니다.")
+	// Coverage matrix CSV/JSON export (roadmap E.5b). Header cells; the same
+	// words are reused by the JSON field labels.
+	Register("Standard", "Standard", "표준")
+	Register("Requirement", "Requirement", "요구 사항")
+	Register("Level", "Level", "레벨")
+	Register("Verdict", "Verdict", "판정")
+	Register("Method", "Method", "방법")
+	Register("Evidence", "Evidence", "증거")
+	Register("Findings", "Findings", "발견 사항")
+	Register("Reason", "Reason", "사유")
 }

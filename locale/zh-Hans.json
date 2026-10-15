@@ -1901,5 +1901,13 @@
   "## Limitations\n\n": "## 局限性\n\n",
   "%d %s requirements were not tested, %d were inconclusive, and %d have no recorded result.\n": "%d 项 %s 要求未测试，%d 项不确定，%d 项没有记录结果。\n",
   "%d recorded results were outside the selected scope and are not counted.\n": "%d 条记录结果超出所选范围，未计入统计。\n",
-  "This report states what was verified and how. It is not a certification or a statement of compliance.": "本报告仅说明已验证的内容及方式，不构成认证或合规声明。"
+  "This report states what was verified and how. It is not a certification or a statement of compliance.": "本报告仅说明已验证的内容及方式，不构成认证或合规声明。",
+  "Standard": "标准",
+  "Requirement": "要求",
+  "Level": "级别",
+  "Verdict": "判定",
+  "Method": "方法",
+  "Evidence": "证据",
+  "Findings": "发现",
+  "Reason": "原因"
 }

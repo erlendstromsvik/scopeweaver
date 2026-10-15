@@ -1,6 +1,9 @@
 package report
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,5 +165,134 @@ func TestCoverageMarkdownNoComplianceClaim(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(ko), "complian") {
 		t.Error("Ko output contains an English compliance claim")
+	}
+}
+
+// TestCoverageJSON parses the JSON export back and checks the counts, the row
+// order, and that a row without findings serializes linked_findings as [] rather
+// than null.
+func TestCoverageJSON(t *testing.T) {
+	in := coverageFixtureInput()
+	generated := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	body, err := CoverageJSON(in, generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Generated  string            `json:"generated"`
+		Summaries  []CoverageSummary `json:"summaries"`
+		Rows       []CoverageRow     `json:"rows"`
+		OutOfScope int               `json:"out_of_scope"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("parse: %v (%s)", err, body)
+	}
+	if doc.Generated != "2026-10-15T12:00:00Z" {
+		t.Errorf("generated = %q, want RFC3339 UTC", doc.Generated)
+	}
+	if len(doc.Summaries) != 2 {
+		t.Fatalf("summaries = %d, want 2", len(doc.Summaries))
+	}
+	if doc.Summaries[0].Standard != db.StandardASVS || doc.Summaries[0].MaxLevel != 2 || doc.Summaries[0].InScope != 5 || doc.Summaries[0].Verified != 2 {
+		t.Errorf("asvs summary = %+v", doc.Summaries[0])
+	}
+	if doc.Summaries[1].Standard != db.StandardWSTG || doc.Summaries[1].InScope != 3 {
+		t.Errorf("wstg summary = %+v", doc.Summaries[1])
+	}
+	if doc.OutOfScope != 1 {
+		t.Errorf("out_of_scope = %d, want 1", doc.OutOfScope)
+	}
+	wantOrder := []string{"V1.1.1", "V1.1.2", "V1.2.9", "V1.2.10", "V10.1.1", "WSTG-ATHN-01", "WSTG-INFO-01", "WSTG-INFO-02"}
+	var got []string
+	for _, r := range doc.Rows {
+		got = append(got, r.RequirementID)
+	}
+	if strings.Join(got, ",") != strings.Join(wantOrder, ",") {
+		t.Errorf("row order = %v, want %v", got, wantOrder)
+	}
+	// The V1.1.2 fail row carries findings 12,15; a row without findings must
+	// serialize as [] not null.
+	byID := map[string]CoverageRow{}
+	for _, r := range doc.Rows {
+		byID[r.RequirementID] = r
+	}
+	if lf := byID["V1.1.2"].LinkedFindings; len(lf) != 2 || lf[0] != 12 || lf[1] != 15 {
+		t.Errorf("V1.1.2 linked_findings = %v, want [12 15]", lf)
+	}
+	if byID["V1.1.1"].LinkedFindings == nil {
+		t.Error("V1.1.1 linked_findings is nil; want empty slice")
+	}
+	// Raw JSON must show [] for a no-findings row, never null.
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	rows := raw["rows"].([]any)
+	for _, e := range rows {
+		m := e.(map[string]any)
+		if m["requirement_id"] == "V1.1.1" {
+			if lf, ok := m["linked_findings"].([]any); !ok || len(lf) != 0 {
+				t.Fatalf("V1.1.1 linked_findings not []: %#v", m["linked_findings"])
+			}
+		}
+	}
+}
+
+// TestCoverageCSV checks the BOM, the localized header, and two known rows: the
+// ASVS pass row (level + evidence, empty findings) and the WSTG partial row
+// (empty level).
+func TestCoverageCSV(t *testing.T) {
+	in := coverageFixtureInput()
+	body := CoverageCSV(in, locale.En)
+	if !bytes.HasPrefix(body, []byte("\xEF\xBB\xBF")) {
+		t.Fatal("missing UTF-8 BOM")
+	}
+	r := csv.NewReader(bytes.NewReader(body[3:]))
+	records, err := r.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHeader := []string{"Standard", "Requirement", "Level", "Verdict", "Method", "Evidence", "Findings", "Reason"}
+	if len(records) == 0 || strings.Join(records[0], "|") != strings.Join(wantHeader, "|") {
+		t.Fatalf("header = %v, want %v", records[0], wantHeader)
+	}
+	// 8 in-scope rows (5 asvs + 3 wstg) plus the header.
+	if len(records) != 9 {
+		t.Fatalf("rows = %d, want 9 (header + 8)", len(records))
+	}
+	byReq := map[string][]string{}
+	for _, rec := range records[1:] {
+		byReq[rec[1]] = rec
+	}
+	// ASVS pass row: level 1, verdict pass, method automated, evidence snap-1,
+	// no findings, no reason.
+	pass := byReq["V1.1.1"]
+	if pass == nil {
+		t.Fatal("missing V1.1.1 row")
+	}
+	if pass[0] != "asvs" || pass[2] != "1" || pass[3] != "pass" || pass[4] != "automated" || pass[5] != "snap-1" || pass[6] != "" || pass[7] != "" {
+		t.Errorf("V1.1.1 row = %v", pass)
+	}
+	// WSTG partial row: empty level, verdict partial, findings empty.
+	wstg := byReq["WSTG-INFO-01"]
+	if wstg == nil {
+		t.Fatal("missing WSTG-INFO-01 row")
+	}
+	if wstg[0] != "wstg" || wstg[2] != "" || wstg[3] != "partial" || wstg[5] != "snap-2" {
+		t.Errorf("WSTG-INFO-01 row = %v", wstg)
+	}
+	// The fail row carries findings "12,15".
+	fail := byReq["V1.1.2"]
+	if fail == nil || fail[6] != "12,15" {
+		t.Errorf("V1.1.2 findings cell = %q, want 12,15", fail[6])
+	}
+	// Korean header is localized.
+	ko := CoverageCSV(in, locale.Ko)
+	koRecs, err := csv.NewReader(bytes.NewReader(ko[3:])).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if koRecs[0][0] != "표준" || koRecs[0][3] != "판정" {
+		t.Errorf("ko header = %v", koRecs[0])
 	}
 }
