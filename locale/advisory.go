@@ -43,5 +43,31 @@ func init() {
 			Ko:     "%[2]q 항목의 NSM RSS pubDate %[1]q 파싱 오류: %[3]v",
 			ZhHans: "解析 %[2]q 条目的 NSM RSS pubDate %[1]q：%[3]v",
 		},
+
+		"register line %d: %v": {
+			En:     "register line %d: %v",
+			Ko:     "레지스터 %[1]d행 오류: %[2]v",
+			ZhHans: "寄存器第 %[1]d 行：%[2]v",
+		},
+		"register line %d: missing id": {
+			En:     "register line %d: missing id",
+			Ko:     "레지스터 %d행: id이(가) 없습니다",
+			ZhHans: "寄存器第 %d 行：缺少 id",
+		},
+		"register line %d: duplicate id %s": {
+			En:     "register line %d: duplicate id %s",
+			Ko:     "레지스터 %[1]d행: 중복된 id %[2]s",
+			ZhHans: "寄存器第 %[1]d 行：重复的 id %[2]s",
+		},
+		"read register: %v": {
+			En:     "read register: %v",
+			Ko:     "레지스터 읽기 오류: %v",
+			ZhHans: "读取寄存器：%v",
+		},
+		"append register entry %s: %v": {
+			En:     "append register entry %s: %v",
+			Ko:     "%[1]s 레지스터 항목 추가 오류: %[2]v",
+			ZhHans: "追加寄存器条目 %[1]s：%[2]v",
+		},
 	})
 }
