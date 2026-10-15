@@ -6,9 +6,11 @@ package advisory
 import (
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/Autumn-27/artex/locale"
+	"github.com/Autumn-27/artex/standards"
 )
 
 // SourceCISAKEV is the Source value for records from the CISA KEV catalog.
@@ -95,4 +97,23 @@ func ParseKEV(b []byte) (catalogVersion string, recs []Record, err error) {
 		return recs[i].ID < recs[j].ID
 	})
 	return cat.CatalogVersion, recs, nil
+}
+
+var (
+	embeddedKEVOnce    sync.Once
+	embeddedKEVVersion string
+	embeddedKEVRecs    []Record
+	embeddedKEVerr     error
+)
+
+// EmbeddedKEV returns the CISA KEV catalog compiled into the binary from
+// the standards sources snapshot (standards.EmbeddedKEVJSON), parsed once
+// like EmbeddedNSMRegister. Scan instances never fetch: the embedded
+// snapshot is what the host-side sync last wrote into the binary. The
+// result is shared across callers and must be treated as read-only.
+func EmbeddedKEV() (version string, recs []Record, err error) {
+	embeddedKEVOnce.Do(func() {
+		embeddedKEVVersion, embeddedKEVRecs, embeddedKEVerr = ParseKEV(standards.EmbeddedKEVJSON())
+	})
+	return embeddedKEVVersion, embeddedKEVRecs, embeddedKEVerr
 }

@@ -16,6 +16,16 @@ var embeddedWSTG []byte
 //go:embed sources/owasp-top10/top10-2025-categories.yaml
 var embeddedTop10 []byte
 
+//go:embed sources/cisa-kev/known_exploited_vulnerabilities.json
+var embeddedKEV []byte
+
+// EmbeddedKEVJSON returns the raw bytes of the CISA KEV catalog snapshot
+// compiled into the binary via //go:embed, for deployments that ship only
+// the binary (the Docker runtime image has no sources directory). The
+// bytes are returned unparsed: the advisory package owns the KEV format,
+// so standards must not import it. Treat the result as read-only.
+func EmbeddedKEVJSON() []byte { return embeddedKEV }
+
 //go:embed crosswalk.yaml
 var embeddedCrosswalkYAML []byte
 

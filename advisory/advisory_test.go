@@ -83,6 +83,31 @@ func TestParseKEVLiveSnapshot(t *testing.T) {
 	}
 }
 
+// TestEmbeddedKEV checks the KEV catalog compiled into the binary parses with
+// a non-empty catalog version and a substantial entry count. No exact
+// numbers: the embedded snapshot is refreshed by the host-side sync, so the
+// version and count change between builds.
+func TestEmbeddedKEV(t *testing.T) {
+	version, recs, err := EmbeddedKEV()
+	if err != nil {
+		t.Fatalf("EmbeddedKEV: %v", err)
+	}
+	if version == "" {
+		t.Fatal("embedded catalogVersion is empty")
+	}
+	if len(recs) <= 1000 {
+		t.Fatalf("embedded len(recs) = %d, want > 1000", len(recs))
+	}
+	// Cached: the second call returns the same backing slice.
+	_, recs2, err := EmbeddedKEV()
+	if err != nil {
+		t.Fatalf("EmbeddedKEV (second call): %v", err)
+	}
+	if &recs[0] != &recs2[0] {
+		t.Error("EmbeddedKEV re-parsed on the second call")
+	}
+}
+
 func TestParseKEVCountMismatch(t *testing.T) {
 	src := `{"catalogVersion":"2026.10.14","count":2,"vulnerabilities":[{"cveID":"CVE-2026-1","vendorProject":"V","product":"P","vulnerabilityName":"n","dateAdded":"2026-10-14"}]}`
 	_, _, err := ParseKEV([]byte(src))

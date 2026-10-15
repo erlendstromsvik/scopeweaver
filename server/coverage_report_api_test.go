@@ -180,6 +180,14 @@ func TestCoverageReportHandler(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "Reflected XSS in search") {
 		t.Error("md missing the seeded finding name in the Top 10 section")
 	}
+	// E.7f: the Markdown report carries the Advisories section built from the
+	// embedded KEV catalog and NSM register.
+	if !strings.Contains(w.Body.String(), "## Advisories") {
+		t.Error("md missing '## Advisories' section")
+	}
+	if !strings.Contains(w.Body.String(), "Sources checked: CISA KEV catalog") {
+		t.Error("md missing the 'Sources checked: CISA KEV catalog' line")
+	}
 
 	// format=pdf -> 400.
 	if w := request(base+"?format=pdf", true); w.Code != http.StatusBadRequest {

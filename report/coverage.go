@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/artex/advisory"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/Autumn-27/artex/standards"
@@ -35,12 +36,23 @@ type CoverageScope struct {
 // the E.5a report is unchanged), while a non-nil but empty list renders the
 // "no findings" sentence. Crosswalk supplies the advisory ASVS suggestions and
 // may be nil.
+//
+// KEV and NSM are only consumed by the Markdown renderer's "Advisories"
+// section (E.7f): a nil KEV and a nil NSM leave that section out entirely (so
+// the earlier goldens stay byte-identical), while non-nil lists render it. Assets
+// are the task's asset inventory the KEV records are matched against, and Now
+// only selects the "recent" NSM window.
 type CoverageInput struct {
-	Catalog   *standards.Catalog
-	Scope     []CoverageScope
-	Results   []*db.ControlResult
-	Findings  []*db.DBFinding
-	Crosswalk []standards.CrosswalkLink
+	Catalog    *standards.Catalog
+	Scope      []CoverageScope
+	Results    []*db.ControlResult
+	Findings   []*db.DBFinding
+	Crosswalk  []standards.CrosswalkLink
+	Assets     []*db.Asset
+	KEVVersion string
+	KEV        []advisory.Record
+	NSM        []advisory.RegisterEntry
+	Now        time.Time
 }
 
 // CoverageRow is one in-scope requirement with its recorded result. An empty
@@ -288,7 +300,103 @@ func CoverageMarkdown(in CoverageInput, generated time.Time, langs ...locale.Lan
 		b.WriteString("\n")
 		b.WriteString(findingsByTop10Markdown(in, lang))
 	}
+	// The Advisories section (E.7f) renders only when at least one advisory
+	// source is supplied, so reports without one stay byte-identical to the
+	// earlier goldens.
+	if in.KEV != nil || in.NSM != nil {
+		b.WriteString("\n")
+		b.WriteString(advisoriesMarkdown(in, lang))
+	}
 	return b.String()
+}
+
+// maxRecentNSM caps the "Recent NSM alerts" list; the newest entries win.
+const maxRecentNSM = 10
+
+// recentNSMDays is the lookback window for "recent" NSM alerts.
+const recentNSMDays = 30
+
+// advisoriesMarkdown renders the "Advisories" section (E.7f): which advisory
+// sources were checked and how fresh they are, the KEV entries that may apply
+// to the task's assets, and the recent NSM alerts. Every KEV row is a
+// candidate for a human/agent check against the version actually in use,
+// never a finding — the section says so in its own words.
+func advisoriesMarkdown(in CoverageInput, lang locale.Lang) string {
+	var b strings.Builder
+	b.WriteString(locale.Text(lang, "## Advisories\n\n"))
+	latestNSM := ""
+	for _, e := range in.NSM {
+		if e.Date > latestNSM {
+			latestNSM = e.Date
+		}
+	}
+	if latestNSM == "" {
+		latestNSM = "—"
+	}
+	fmt.Fprintf(&b, locale.Text(lang, "Sources checked: CISA KEV catalog %s (%d entries); NSM vulnerability alerts register (%d alerts, latest %s).\n\n"),
+		in.KEVVersion, len(in.KEV), len(in.NSM), latestNSM)
+
+	b.WriteString(locale.Text(lang, "### Known exploited vulnerabilities that may apply\n\n"))
+	matches := advisory.MatchAssets(in.KEV, in.Assets)
+	if len(matches) == 0 {
+		b.WriteString(locale.Text(lang, "No KEV entries matched the detected technologies of this task's assets.") + "\n")
+	} else {
+		b.WriteString(locale.Text(lang, "| Asset | Technology | CVE | Vulnerability | Added |\n| --- | --- | --- | --- | --- |\n"))
+		for _, m := range matches {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
+				escapeMDCell(assetLabel(m.AssetID, in.Assets)),
+				escapeMDCell(m.Technology),
+				escapeMDCell(m.Record.ID),
+				escapeMDCell(m.Record.Title),
+				m.Record.Date.Format("2006-01-02"))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(locale.Text(lang, "These are candidates to verify against the actual version in use, not findings.") + "\n")
+
+	b.WriteString("\n")
+	b.WriteString(locale.Text(lang, "### Recent NSM alerts\n\n"))
+	cutoff := in.Now.UTC().AddDate(0, 0, -recentNSMDays).Format("2006-01-02")
+	recent := make([]advisory.RegisterEntry, 0, len(in.NSM))
+	for _, e := range in.NSM {
+		if e.Date > cutoff && e.Date <= in.Now.UTC().Format("2006-01-02") {
+			recent = append(recent, e)
+		}
+	}
+	sort.SliceStable(recent, func(i, j int) bool { return recent[i].Date > recent[j].Date })
+	if len(recent) > maxRecentNSM {
+		recent = recent[:maxRecentNSM]
+	}
+	if len(recent) == 0 {
+		b.WriteString(locale.Text(lang, "No NSM alerts in the last 30 days.") + "\n")
+		return b.String()
+	}
+	for _, e := range recent {
+		if len(e.CVEs) > 0 {
+			fmt.Fprintf(&b, "- %s — [%s](%s) (%s)\n", e.Date, e.Title, e.Link, strings.Join(e.CVEs, ", "))
+			continue
+		}
+		fmt.Fprintf(&b, "- %s — [%s](%s)\n", e.Date, e.Title, e.Link)
+	}
+	return b.String()
+}
+
+// assetLabel renders an asset reference for the KEV table: "#<id> <value>",
+// where value is the asset's URL, domain or IP — the first non-empty one.
+// An asset with none of the three renders as its bare "#<id>".
+func assetLabel(id int64, assets []*db.Asset) string {
+	for _, a := range assets {
+		if a == nil || a.ID != id {
+			continue
+		}
+		for _, v := range []string{a.URL, a.Domain, a.IP} {
+			if v != "" {
+				return fmt.Sprintf("#%d %s", id, v)
+			}
+		}
+		return fmt.Sprintf("#%d", id)
+	}
+	return fmt.Sprintf("#%d", id)
 }
 
 // coverageJSONDoc is the machine-readable coverage report envelope.

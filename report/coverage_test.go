@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Autumn-27/artex/advisory"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/Autumn-27/artex/standards"
@@ -443,5 +445,140 @@ func TestFindingsEmptySection(t *testing.T) {
 	}
 	if strings.Contains(got, "### A01") || strings.Contains(got, "### Unclassified") {
 		t.Errorf("empty findings should render no groups:\n%s", got)
+	}
+}
+
+// advisoriesFixtureInput is the E.7f fixture: three assets (one service with a
+// matching technology, one domain with a non-matching technology, one bare IP
+// with no technologies), two KEV records (one matching "Microsoft Exchange
+// Server 2019", one not), and three NSM register entries around a fixed Now of
+// 2026-10-15 (two within 30 days, one older).
+func advisoriesFixtureInput() CoverageInput {
+	in := coverageFixtureInput()
+	in.Assets = []*db.Asset{
+		{ID: 7, Type: "service", URL: "https://mail.example.com/owa", Technologies: []string{"Microsoft Exchange Server 2019"}},
+		{ID: 8, Type: "domain", Domain: "shop.example.com", Technologies: []string{"nginx"}},
+		{ID: 9, Type: "ip", IP: "203.0.113.10"},
+	}
+	in.KEVVersion = "2026.10.15"
+	in.KEV = []advisory.Record{
+		{
+			Source: advisory.SourceCISAKEV, ID: "CVE-2023-21529",
+			Title: "Microsoft Exchange Server Deserialization of Untrusted Data Vulnerability",
+			Date:  time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC),
+			CVEs:  []string{"CVE-2023-21529"}, Vendor: "Microsoft", Product: "Exchange Server",
+			Link: "https://nvd.nist.gov/vuln/detail/CVE-2023-21529",
+		},
+		{
+			Source: advisory.SourceCISAKEV, ID: "CVE-2026-0001",
+			Title: "Acme Widget Remote Code Execution",
+			Date:  time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+			CVEs:  []string{"CVE-2026-0001"}, Vendor: "Acme", Product: "Widget",
+			Link: "https://nvd.nist.gov/vuln/detail/CVE-2026-0001",
+		},
+	}
+	in.NSM = []advisory.RegisterEntry{
+		{ID: "alert-old", Source: advisory.SourceNSM, Title: "Old alert", Date: "2026-08-01",
+			Link: "https://nsm.no/alert-old", CVEs: []string{}, FirstSeen: "2026-08-01"},
+		{ID: "alert-mid", Source: advisory.SourceNSM, Title: "Mid alert", Date: "2026-09-25",
+			Link: "https://nsm.no/alert-mid", CVEs: []string{"CVE-2026-1111", "CVE-2026-1112"}, FirstSeen: "2026-09-25"},
+		{ID: "alert-new", Source: advisory.SourceNSM, Title: "New alert", Date: "2026-10-14",
+			Link: "https://nsm.no/alert-new", CVEs: []string{}, FirstSeen: "2026-10-14"},
+	}
+	in.Now = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	return in
+}
+
+// TestCoverageAdvisoriesGolden renders the E.7f section once and checks the
+// golden: the KEV table holds only the Exchange match on asset #7 (the Widget
+// record matches nothing), the candidate sentence follows it, and the recent
+// NSM list holds the two entries within 30 days of Now, newest first, with the
+// CVE list only on the entry that has CVEs.
+func TestCoverageAdvisoriesGolden(t *testing.T) {
+	in := advisoriesFixtureInput()
+	generated := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	got := CoverageMarkdown(in, generated, locale.En)
+	goldenPath := filepath.Join("testdata", "coverage_advisories_en.golden.md")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("advisories markdown differs from golden:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestAdvisoriesSectionGating checks the section renders when either source is
+// non-nil and is absent when both are nil, so the earlier goldens stay
+// byte-identical.
+func TestAdvisoriesSectionGating(t *testing.T) {
+	base := coverageFixtureInput()
+	if got := CoverageMarkdown(base, time.Unix(0, 0).UTC(), locale.En); strings.Contains(got, "## Advisories") {
+		t.Error("nil KEV and nil NSM must not render the Advisories section")
+	}
+	kevOnly := advisoriesFixtureInput()
+	kevOnly.NSM = nil
+	if got := CoverageMarkdown(kevOnly, time.Unix(0, 0).UTC(), locale.En); !strings.Contains(got, "## Advisories") {
+		t.Error("non-nil KEV must render the Advisories section")
+	}
+	nsmOnly := advisoriesFixtureInput()
+	nsmOnly.KEV = nil
+	if got := CoverageMarkdown(nsmOnly, time.Unix(0, 0).UTC(), locale.En); !strings.Contains(got, "## Advisories") {
+		t.Error("non-nil NSM must render the Advisories section")
+	}
+}
+
+// TestAdvisoriesEmptyMatches checks an empty KEV list with assets present renders
+// the no-match sentence, and an empty NSM list renders the no-alerts sentence
+// with the "—" latest-date placeholder.
+func TestAdvisoriesEmptyMatches(t *testing.T) {
+	in := advisoriesFixtureInput()
+	in.KEV = []advisory.Record{}
+	in.NSM = []advisory.RegisterEntry{}
+	got := CoverageMarkdown(in, time.Unix(0, 0).UTC(), locale.En)
+	if !strings.Contains(got, "No KEV entries matched the detected technologies of this task's assets.") {
+		t.Errorf("missing no-match sentence:\n%s", got)
+	}
+	if !strings.Contains(got, "No NSM alerts in the last 30 days.") {
+		t.Errorf("missing no-alerts sentence:\n%s", got)
+	}
+	if !strings.Contains(got, "Sources checked: CISA KEV catalog 2026.10.15 (0 entries); NSM vulnerability alerts register (0 alerts, latest —).") {
+		t.Errorf("missing sources line with placeholder:\n%s", got)
+	}
+}
+
+// TestRecentNSMWindow checks the 30-day boundary and the newest-first cap:
+// entries are laid down one per day back from Now; the 10 newest inside the
+// window render, the older ones are dropped by the cap.
+func TestRecentNSMWindow(t *testing.T) {
+	in := advisoriesFixtureInput()
+	in.NSM = nil
+	for i := range 12 {
+		// 2026-10-15 minus i days: i=0 is today, i=11 is 2026-10-04.
+		d := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -i)
+		in.NSM = append(in.NSM, advisory.RegisterEntry{
+			ID: fmt.Sprintf("a%02d", i), Source: advisory.SourceNSM,
+			Title: "alert " + d.Format("2006-01-02"), Date: d.Format("2006-01-02"),
+			Link: "https://nsm.no/" + d.Format("2006-01-02"), CVEs: []string{},
+		})
+	}
+	got := CoverageMarkdown(in, time.Unix(0, 0).UTC(), locale.En)
+	// i=30 would be 2026-09-15; i=0..11 are 2026-10-15 down to 2026-10-04.
+	if strings.Contains(got, "2026-09-15") {
+		t.Error("entry exactly 30 days before Now must be outside the window")
+	}
+	if !strings.Contains(got, "- 2026-10-15 — [alert 2026-10-15](https://nsm.no/2026-10-15)") {
+		t.Error("today's alert missing")
+	}
+	if !strings.Contains(got, "2026-10-06") || strings.Contains(got, "2026-10-04") {
+		t.Error("recent cap must keep the 10 newest (2026-10-15..2026-10-06) and drop 2026-10-05/04")
+	}
+	if n := strings.Count(got, "\n- 2026-"); n != 10 {
+		t.Errorf("recent NSM bullets = %d, want 10", n)
 	}
 }

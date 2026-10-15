@@ -88,4 +88,40 @@ func init() {
 	Register("| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n", "| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n", "| 발견 사항 | 심각도 | 상태 | CWE | ASVS | ASVS (참고) |\n| --- | --- | --- | --- | --- | --- |\n")
 	Register("No findings recorded for this task.", "No findings recorded for this task.", "이 작업에 기록된 발견 사항이 없습니다.")
 	Register(" (+%d more)", " (+%d more)", " (+%d개 더)")
+	// Advisories section (roadmap E.7f). The KEV rows are candidates to verify,
+	// never findings; the "latest" NSM date is a raw register date.
+	Register("## Advisories\n\n", "## Advisories\n\n", "## 권고 사항\n\n")
+	Register("Sources checked: CISA KEV catalog %s (%d entries); NSM vulnerability alerts register (%d alerts, latest %s).\n\n", "Sources checked: CISA KEV catalog %s (%d entries); NSM vulnerability alerts register (%d alerts, latest %s).\n\n", "확인한 출처: CISA KEV 카탈로그 %s(%d개 항목); NSM 취약점 경보 레지스터(%d개 경보, 최신 %s).\n\n")
+	Register("### Known exploited vulnerabilities that may apply\n\n", "### Known exploited vulnerabilities that may apply\n\n", "### 적용될 수 있는 알려진 악용 취약점\n\n")
+	Register("| Asset | Technology | CVE | Vulnerability | Added |\n| --- | --- | --- | --- | --- |\n", "| Asset | Technology | CVE | Vulnerability | Added |\n| --- | --- | --- | --- | --- |\n", "| 자산 | 기술 | CVE | 취약점 | 추가일 |\n| --- | --- | --- | --- | --- |\n")
+	Register("No KEV entries matched the detected technologies of this task's assets.", "No KEV entries matched the detected technologies of this task's assets.", "KEV 항목이 이 작업의 자산에서 감지된 기술과 일치하지 않습니다.")
+	Register("These are candidates to verify against the actual version in use, not findings.", "These are candidates to verify against the actual version in use, not findings.", "이 항목은 실제로 사용 중인 버전에 대해 확인이 필요한 후보이며 발견 사항이 아닙니다.")
+	Register("### Recent NSM alerts\n\n", "### Recent NSM alerts\n\n", "### 최근 NSM 경보\n\n")
+	Register("No NSM alerts in the last 30 days.", "No NSM alerts in the last 30 days.", "지난 30일간의 NSM 경보가 없습니다.")
+	RegisterAll(map[string]map[Lang]string{
+		"## Advisories\n\n": {
+			ZhHans: "## 公告\n\n",
+		},
+		"Sources checked: CISA KEV catalog %s (%d entries); NSM vulnerability alerts register (%d alerts, latest %s).\n\n": {
+			ZhHans: "已检查来源：CISA KEV 目录 %s（%d 个条目）；NSM 漏洞警报登记册（%d 条警报，最新为 %s）。\n\n",
+		},
+		"### Known exploited vulnerabilities that may apply\n\n": {
+			ZhHans: "### 可能适用的已知被利用漏洞\n\n",
+		},
+		"| Asset | Technology | CVE | Vulnerability | Added |\n| --- | --- | --- | --- | --- |\n": {
+			ZhHans: "| 资产 | 技术 | CVE | 漏洞 | 添加日期 |\n| --- | --- | --- | --- | --- |\n",
+		},
+		"No KEV entries matched the detected technologies of this task's assets.": {
+			ZhHans: "没有 KEV 条目与本任务资产检测到的技术相匹配。",
+		},
+		"These are candidates to verify against the actual version in use, not findings.": {
+			ZhHans: "这些是需要与实际使用版本进行核实的候选项，并非发现结果。",
+		},
+		"### Recent NSM alerts\n\n": {
+			ZhHans: "### 近期 NSM 警报\n\n",
+		},
+		"No NSM alerts in the last 30 days.": {
+			ZhHans: "最近 30 天内没有 NSM 警报。",
+		},
+	})
 }

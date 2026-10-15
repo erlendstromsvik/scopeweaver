@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/artex/advisory"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/locale"
 	"github.com/Autumn-27/artex/report"
@@ -81,6 +82,10 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 	// findings with their refs, plus the embedded crosswalk for the advisory ASVS
 	// suggestions. JSON/CSV stay unchanged. A nil findings list would drop the
 	// section, so an empty non-nil slice keeps it rendered.
+	//
+	// Markdown also gains the "Advisories" section (E.7f): the task's assets,
+	// and the KEV catalog and NSM register embedded in the binary. Instances
+	// never fetch — the embedded snapshot is the freshest thing they have.
 	if format == "md" {
 		findings, err := s.m.pg.ListFindingsForExport(db.FindingFilter{TaskID: t.ID}, nil)
 		if err != nil {
@@ -97,6 +102,29 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Findings = findings
 		in.Crosswalk = crosswalk
+		var assets []*db.Asset
+		if as := s.assetStore(); as != nil {
+			assets, err = as.ListAssetsForExport(db.AssetExportFilter{TaskID: taskID}, nil)
+			if err != nil {
+				writeError(w, 500, err)
+				return
+			}
+		}
+		kevVersion, kev, err := advisory.EmbeddedKEV()
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		nsm, err := advisory.EmbeddedNSMRegister()
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		in.Assets = assets
+		in.KEVVersion = kevVersion
+		in.KEV = kev
+		in.NSM = nsm
+		in.Now = time.Now()
 	}
 
 	now := time.Now()
