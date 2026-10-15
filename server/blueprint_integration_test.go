@@ -152,18 +152,26 @@ func TestApplyBlueprint(t *testing.T) {
 
 	// Task: exists, bound to the company+profile, and admitted (not queued).
 	var (
-		taskID   int64
-		expID    int64
-		taskComp int64
-		queued   bool
+		taskID int64
+		expID  int64
+		queued bool
 	)
 	if err := pg.QueryRow(
-		`SELECT id, exploration_id, COALESCE(company_id,0), queued FROM tasks WHERE goal=$1 AND deleted_at IS NULL`,
-		goal).Scan(&taskID, &expID, &taskComp, &queued); err != nil {
+		`SELECT id, exploration_id, queued FROM tasks WHERE goal=$1 AND deleted_at IS NULL`,
+		goal).Scan(&taskID, &expID, &queued); err != nil {
 		t.Fatalf("read provisioned task: %v", err)
 	}
-	if taskComp != companyID {
-		t.Errorf("task company binding: got %d, want %d", taskComp, companyID)
+	// Company binding is a task_scope row (kind='company'), as insertTaskCompanies
+	// writes it — not a tasks.company_id column (that column belongs to assets; the
+	// task-create path leaves any such column unset). Mirrors db/tasks_test.go.
+	var compBindings int
+	if err := pg.QueryRow(
+		`SELECT count(*) FROM task_scope WHERE task_id=$1 AND kind='company' AND company_id=$2`,
+		taskID, companyID).Scan(&compBindings); err != nil {
+		t.Fatalf("read task company binding: %v", err)
+	}
+	if compBindings != 1 {
+		t.Errorf("task->company bindings: got %d, want 1", compBindings)
 	}
 	if queued {
 		t.Error("task is queued; expected it to be admitted (not queued)")
