@@ -80,4 +80,12 @@ func init() {
 	Register("Evidence", "Evidence", "증거")
 	Register("Findings", "Findings", "발견 사항")
 	Register("Reason", "Reason", "사유")
+	// Findings by OWASP Top 10 (roadmap E.5c). The "Unclassified" group label is
+	// the pre-existing key from report/findings.go; the advisory note says the
+	// crosswalk links are not authoritative.
+	Register("## Findings by OWASP Top 10\n\n", "## Findings by OWASP Top 10\n\n", "## OWASP Top 10별 발견 사항\n\n")
+	Register("ASVS (advisory) lists requirements linked to the finding's CWE through the OpenCRE crosswalk. These links are not authoritative.", "ASVS (advisory) lists requirements linked to the finding's CWE through the OpenCRE crosswalk. These links are not authoritative.", "권고 사항인 ASVS(참고)는 OpenCRE 크로스워크를 통해 이 발견 사항의 CWE와 연결된 요구 사항을 나열합니다. 이 연결은 권위가 없습니다.")
+	Register("| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n", "| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n", "| 발견 사항 | 심각도 | 상태 | CWE | ASVS | ASVS (참고) |\n| --- | --- | --- | --- | --- | --- |\n")
+	Register("No findings recorded for this task.", "No findings recorded for this task.", "이 작업에 기록된 발견 사항이 없습니다.")
+	Register(" (+%d more)", " (+%d more)", " (+%d개 더)")
 }

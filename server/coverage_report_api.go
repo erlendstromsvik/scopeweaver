@@ -62,6 +62,28 @@ func (s *Server) coverageReport(w http.ResponseWriter, r *http.Request) {
 		Results: results,
 	}
 
+	// Markdown gains the "Findings by OWASP Top 10" section (E.5c): the task's
+	// findings with their refs, plus the embedded crosswalk for the advisory ASVS
+	// suggestions. JSON/CSV stay unchanged. A nil findings list would drop the
+	// section, so an empty non-nil slice keeps it rendered.
+	if format == "md" {
+		findings, err := s.m.pg.ListFindingsForExport(db.FindingFilter{TaskID: t.ID}, nil)
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		if findings == nil {
+			findings = []*db.DBFinding{}
+		}
+		crosswalk, err := standards.EmbeddedCrosswalk()
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		in.Findings = findings
+		in.Crosswalk = crosswalk
+	}
+
 	now := time.Now()
 	stamp := now.Format("20060102-150405")
 	filename := fmt.Sprintf(`attachment; filename="coverage-%s-%s.`, t.ID, stamp)

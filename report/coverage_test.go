@@ -296,3 +296,152 @@ func TestCoverageCSV(t *testing.T) {
 		t.Errorf("ko header = %v", koRecs[0])
 	}
 }
+
+// findingsCatalog adds the Top 10 categories the findings fixture groups into.
+func findingsCatalog() *standards.Catalog {
+	c := fixtureCatalog()
+	c.Top10 = map[string]standards.Top10Category{
+		"A01:2025": {ID: "A01:2025", Title: "Broken Access Control"},
+		"A05:2025": {ID: "A05:2025", Title: "Injection"},
+	}
+	return c
+}
+
+func ref(scheme, id string) *db.FindingRef { return &db.FindingRef{Scheme: scheme, Ref: id} }
+
+func link(fromScheme, fromID, toScheme, toID string) standards.CrosswalkLink {
+	return standards.CrosswalkLink{
+		From:       standards.Ref{Scheme: fromScheme, ID: fromID},
+		To:         standards.Ref{Scheme: toScheme, ID: toID},
+		Source:     "test",
+		Confidence: "low",
+	}
+}
+
+// findingsFixtureInput is the E.5c fixture: four findings, one of which is a
+// duplicate that must be excluded, plus a small crosswalk.
+func findingsFixtureInput() CoverageInput {
+	in := coverageFixtureInput()
+	in.Catalog = findingsCatalog()
+	in.Crosswalk = []standards.CrosswalkLink{
+		link(db.SchemeASVS, "V5.1.1", db.SchemeCWE, "CWE-79"),
+		link(db.SchemeASVS, "V5.2.2", db.SchemeCWE, "CWE-79"),
+		link(db.SchemeASVS, "V1.1.1", db.SchemeCWE, "CWE-89"),
+	}
+	in.Findings = []*db.DBFinding{
+		{ID: 1, Name: "XSS in search", Severity: "high", Status: "confirmed",
+			Refs: []*db.FindingRef{ref(db.SchemeCWE, "CWE-79"), ref(db.SchemeOWASPTop10, "A05:2025"), ref(db.SchemeASVS, "V5.1.1")}},
+		{ID: 2, Name: "IDOR", Severity: "critical", Status: "confirmed",
+			Refs: []*db.FindingRef{ref(db.SchemeOWASPTop10, "A01:2025")}},
+		{ID: 3, Name: "Verbose error", Severity: "low", Status: "pending"},
+		{ID: 4, Name: "Dup XSS", Severity: "high", Status: db.FindingDuplicate,
+			Refs: []*db.FindingRef{ref(db.SchemeCWE, "CWE-79"), ref(db.SchemeOWASPTop10, "A05:2025")}},
+	}
+	return in
+}
+
+// TestFindingsByTop10Golden renders the E.5c section once and checks the golden:
+// A01 holds #2, A05 holds #1 (ASVS V5.1.1, advisory V5.2.2 only), Unclassified
+// holds #3, and the duplicate #4 is absent.
+func TestFindingsByTop10Golden(t *testing.T) {
+	in := findingsFixtureInput()
+	generated := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	got := CoverageMarkdown(in, generated, locale.En)
+	goldenPath := filepath.Join("testdata", "coverage_findings_en.golden.md")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("findings markdown differs from golden:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestFindingsByTop10Groups checks the grouping, ordering and advisory cell
+// directly, without the golden file.
+func TestFindingsByTop10Groups(t *testing.T) {
+	in := findingsFixtureInput()
+	got := CoverageMarkdown(in, time.Unix(0, 0).UTC(), locale.En)
+
+	// Headings in catalog order, only non-empty groups, Unclassified last.
+	a01 := strings.Index(got, "### A01:2025 — Broken Access Control")
+	a05 := strings.Index(got, "### A05:2025 — Injection")
+	unc := strings.Index(got, "### Unclassified")
+	if a01 < 0 || a05 < 0 || unc < 0 {
+		t.Fatalf("missing a group heading: a01=%d a05=%d unc=%d\n%s", a01, a05, unc, got)
+	}
+	if !(a01 < a05 && a05 < unc) {
+		t.Errorf("group order wrong: a01=%d a05=%d unc=%d", a01, a05, unc)
+	}
+	// #2 in A01, #1 in A05, #3 in Unclassified, #4 nowhere.
+	a01Body := got[a01:a05]
+	a05Body := got[a05:unc]
+	uncBody := got[unc:]
+	if !strings.Contains(a01Body, "#2 IDOR") {
+		t.Errorf("A01 missing #2 IDOR:\n%s", a01Body)
+	}
+	if strings.Contains(a01Body, "#1 ") {
+		t.Errorf("A01 should not contain #1:\n%s", a01Body)
+	}
+	if !strings.Contains(a05Body, "#1 XSS in search") {
+		t.Errorf("A05 missing #1:\n%s", a05Body)
+	}
+	// #1's ASVS column lists V5.1.1; advisory lists V5.2.2 only (V5.1.1 already listed).
+	for _, line := range strings.Split(a05Body, "\n") {
+		if strings.Contains(line, "#1 XSS in search") {
+			cols := strings.Split(line, "|")
+			if len(cols) != 8 {
+				t.Fatalf("unexpected column count %d in %q", len(cols)-1, line)
+			}
+			if strings.TrimSpace(cols[5]) != "V5.1.1" {
+				t.Errorf("ASVS column = %q, want V5.1.1", strings.TrimSpace(cols[5]))
+			}
+			if strings.TrimSpace(cols[6]) != "V5.2.2" {
+				t.Errorf("advisory column = %q, want V5.2.2", strings.TrimSpace(cols[6]))
+			}
+		}
+	}
+	if !strings.Contains(uncBody, "#3 Verbose error") {
+		t.Errorf("Unclassified missing #3:\n%s", uncBody)
+	}
+	if strings.Contains(got, "#4") || strings.Contains(got, "Dup XSS") {
+		t.Errorf("duplicate finding #4 must be excluded:\n%s", got)
+	}
+}
+
+// TestAdvisoryASVSCap checks a CWE that maps to 10 advisory ASVS ids shows 8 and
+// "(+2 more)", in natural order.
+func TestAdvisoryASVSCap(t *testing.T) {
+	in := findingsFixtureInput()
+	// Ten distinct asvs -> CWE-79 links, none already listed on the finding.
+	in.Crosswalk = nil
+	for _, id := range []string{"V1.1.1", "V1.1.2", "V1.1.3", "V1.1.4", "V1.1.5", "V1.1.6", "V1.1.7", "V1.1.8", "V1.1.9", "V1.1.10"} {
+		in.Crosswalk = append(in.Crosswalk, link(db.SchemeASVS, id, db.SchemeCWE, "CWE-79"))
+	}
+	f := &db.DBFinding{ID: 9, Name: "Many", Severity: "high", Status: "confirmed",
+		Refs: []*db.FindingRef{ref(db.SchemeCWE, "CWE-79"), ref(db.SchemeOWASPTop10, "A05:2025")}}
+	cell := advisoryASVSCell(in, f, locale.En)
+	want := "V1.1.1, V1.1.2, V1.1.3, V1.1.4, V1.1.5, V1.1.6, V1.1.7, V1.1.8 (+2 more)"
+	if cell != want {
+		t.Errorf("advisory cell = %q, want %q", cell, want)
+	}
+}
+
+// TestFindingsEmptySection checks an empty (non-nil) findings list renders the
+// "no findings" sentence and no group headings.
+func TestFindingsEmptySection(t *testing.T) {
+	in := findingsFixtureInput()
+	in.Findings = []*db.DBFinding{}
+	got := CoverageMarkdown(in, time.Unix(0, 0).UTC(), locale.En)
+	if !strings.Contains(got, "No findings recorded for this task.") {
+		t.Errorf("missing no-findings sentence:\n%s", got)
+	}
+	if strings.Contains(got, "### A01") || strings.Contains(got, "### Unclassified") {
+		t.Errorf("empty findings should render no groups:\n%s", got)
+	}
+}

@@ -16,6 +16,26 @@ var embeddedWSTG []byte
 //go:embed sources/owasp-top10/top10-2025-categories.yaml
 var embeddedTop10 []byte
 
+//go:embed crosswalk.yaml
+var embeddedCrosswalkYAML []byte
+
+var (
+	embeddedCrosswalkOnce sync.Once
+	embeddedCrosswalk     []CrosswalkLink
+	embeddedCrosswalkErr  error
+)
+
+// EmbeddedCrosswalk returns the crosswalk links compiled into the binary from
+// crosswalk.yaml via //go:embed, for deployments that ship only the binary (the
+// Docker runtime image has no sources directory). The file is parsed once; the
+// result is shared across callers and must be treated as read-only.
+func EmbeddedCrosswalk() ([]CrosswalkLink, error) {
+	embeddedCrosswalkOnce.Do(func() {
+		embeddedCrosswalk, embeddedCrosswalkErr = parseCrosswalk(embeddedCrosswalkYAML)
+	})
+	return embeddedCrosswalk, embeddedCrosswalkErr
+}
+
 var (
 	embeddedOnce sync.Once
 	embeddedCat  *Catalog

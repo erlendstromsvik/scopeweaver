@@ -22,6 +22,12 @@ func LoadCrosswalk(path string) ([]CrosswalkLink, error) {
 	if err != nil {
 		return nil, locale.Errorf("read crosswalk: %w", err)
 	}
+	return parseCrosswalk(b)
+}
+
+// parseCrosswalk unmarshals crosswalk YAML (shape: {links: [...]}) into links.
+// Shared by LoadCrosswalk and EmbeddedCrosswalk so both read the same shape.
+func parseCrosswalk(b []byte) ([]CrosswalkLink, error) {
 	var f crosswalkFile
 	if err := yaml.Unmarshal(b, &f); err != nil {
 		return nil, locale.Errorf("parse crosswalk: %w", err)

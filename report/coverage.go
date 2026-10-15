@@ -29,10 +29,18 @@ type CoverageScope struct {
 // CoverageInput bundles the catalog, the selected scope and the task's control
 // results. Results whose standard/requirement is not in scope are reported
 // separately and never rendered as rows.
+//
+// Findings and Crosswalk are only consumed by the Markdown renderer's "Findings
+// by OWASP Top 10" section: a nil Findings leaves that section out entirely (so
+// the E.5a report is unchanged), while a non-nil but empty list renders the
+// "no findings" sentence. Crosswalk supplies the advisory ASVS suggestions and
+// may be nil.
 type CoverageInput struct {
-	Catalog *standards.Catalog
-	Scope   []CoverageScope
-	Results []*db.ControlResult
+	Catalog   *standards.Catalog
+	Scope     []CoverageScope
+	Results   []*db.ControlResult
+	Findings  []*db.DBFinding
+	Crosswalk []standards.CrosswalkLink
 }
 
 // CoverageRow is one in-scope requirement with its recorded result. An empty
@@ -276,6 +284,10 @@ func CoverageMarkdown(in CoverageInput, generated time.Time, langs ...locale.Lan
 		fmt.Fprintf(&b, "- "+locale.Text(lang, "%d recorded results were outside the selected scope and are not counted.\n"), outOfScope)
 	}
 	b.WriteString("- " + locale.Text(lang, "This report states what was verified and how. It is not a certification or a statement of compliance.") + "\n")
+	if in.Findings != nil {
+		b.WriteString("\n")
+		b.WriteString(findingsByTop10Markdown(in, lang))
+	}
 	return b.String()
 }
 
@@ -373,4 +385,159 @@ func findingsCell(ids []int64) string {
 // Markdown table row.
 func escapeMDCell(s string) string {
 	return strings.ReplaceAll(s, "|", "\\|")
+}
+
+// maxAdvisoryASVS caps the advisory ASVS suggestions listed per finding; the
+// remainder is summarized as "(+N more)".
+const maxAdvisoryASVS = 8
+
+// findingsByTop10Markdown renders the "Findings by OWASP Top 10" section: the
+// task's findings grouped by their owasp-top10 refs, each with its CWE and ASVS
+// refs plus the ASVS requirements suggested by the crosswalk (advisory).
+func findingsByTop10Markdown(in CoverageInput, lang locale.Lang) string {
+	var b strings.Builder
+	b.WriteString(locale.Text(lang, "## Findings by OWASP Top 10\n\n"))
+	b.WriteString(locale.Text(lang, "ASVS (advisory) lists requirements linked to the finding's CWE through the OpenCRE crosswalk. These links are not authoritative.") + "\n")
+
+	groups := map[string][]*db.DBFinding{}
+	var unclassified []*db.DBFinding
+	for _, f := range in.Findings {
+		if f == nil || f.Status == db.FindingFalsePositive || f.Status == db.FindingDuplicate {
+			continue
+		}
+		ids := findingRefValues(f, db.SchemeOWASPTop10)
+		if len(ids) == 0 {
+			unclassified = append(unclassified, f)
+			continue
+		}
+		for _, id := range ids {
+			groups[id] = append(groups[id], f)
+		}
+	}
+
+	if len(groups) == 0 && len(unclassified) == 0 {
+		b.WriteString(locale.Text(lang, "No findings recorded for this task.") + "\n")
+		return b.String()
+	}
+
+	var order []string
+	if in.Catalog != nil {
+		for id := range in.Catalog.Top10 {
+			if len(groups[id]) > 0 {
+				order = append(order, id)
+			}
+		}
+	}
+	sort.Slice(order, func(i, j int) bool { return naturalLess(order[i], order[j]) })
+	for _, id := range order {
+		b.WriteString("\n")
+		writeTop10Group(&b, in, lang, top10Heading(in, id), groups[id])
+	}
+	if len(unclassified) > 0 {
+		b.WriteString("\n")
+		writeTop10Group(&b, in, lang, locale.Text(lang, "Unclassified"), unclassified)
+	}
+	return b.String()
+}
+
+// top10Heading renders a category heading body: "A01:2025 — <Title>", or the bare
+// id when the catalog has no such category.
+func top10Heading(in CoverageInput, id string) string {
+	if in.Catalog != nil {
+		if c, ok := in.Catalog.Top10[id]; ok && c.Title != "" {
+			return id + " — " + c.Title
+		}
+	}
+	return id
+}
+
+// writeTop10Group writes one group's heading and findings table. Findings sort by
+// severity (critical, high, medium, low, then others) and then by id.
+func writeTop10Group(b *strings.Builder, in CoverageInput, lang locale.Lang, heading string, findings []*db.DBFinding) {
+	fmt.Fprintf(b, "### %s\n\n", escapeMDCell(heading))
+	b.WriteString(locale.Text(lang, "| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n"))
+	sorted := make([]*db.DBFinding, len(findings))
+	copy(sorted, findings)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		si, sj := severityRank(sorted[i].Severity), severityRank(sorted[j].Severity)
+		if si != sj {
+			return si > sj
+		}
+		return sorted[i].ID < sorted[j].ID
+	})
+	for _, f := range sorted {
+		name := f.Name
+		if name == "" {
+			name = f.VulnClass
+		}
+		fmt.Fprintf(b, "| #%d %s | %s | %s | %s | %s | %s |\n",
+			f.ID,
+			escapeMDCell(name),
+			escapeMDCell(f.Severity),
+			escapeMDCell(f.Status),
+			escapeMDCell(strings.Join(findingRefValues(f, db.SchemeCWE), ", ")),
+			escapeMDCell(strings.Join(findingRefValues(f, db.SchemeASVS), ", ")),
+			escapeMDCell(advisoryASVSCell(in, f, lang)))
+	}
+}
+
+// severityRank orders severities for the findings table; unknown values sort last.
+func severityRank(severity string) int {
+	switch severity {
+	case db.SeverityCritical:
+		return 4
+	case db.SeverityHigh:
+		return 3
+	case db.SeverityMedium:
+		return 2
+	case db.SeverityLow:
+		return 1
+	}
+	return 0
+}
+
+// findingRefValues returns the finding's refs of one scheme in natural order
+// ("CWE-9" before "CWE-79", "V1.1.10" after "V1.1.9").
+func findingRefValues(f *db.DBFinding, scheme string) []string {
+	var out []string
+	for _, r := range f.Refs {
+		if r != nil && r.Scheme == scheme {
+			out = append(out, r.Ref)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return naturalLess(out[i], out[j]) })
+	return out
+}
+
+// advisoryASVSCell lists the ASVS ids the crosswalk links to the finding's CWE
+// refs, minus the ASVS refs already listed, in natural order, capped at
+// maxAdvisoryASVS with a "(+N more)" tail.
+func advisoryASVSCell(in CoverageInput, f *db.DBFinding, lang locale.Lang) string {
+	cwes := map[string]bool{}
+	for _, cwe := range findingRefValues(f, db.SchemeCWE) {
+		cwes[cwe] = true
+	}
+	listed := map[string]bool{}
+	for _, asvs := range findingRefValues(f, db.SchemeASVS) {
+		listed[asvs] = true
+	}
+	seen := map[string]bool{}
+	var suggested []string
+	for _, l := range in.Crosswalk {
+		if l.From.Scheme != db.SchemeASVS || l.To.Scheme != db.SchemeCWE || !cwes[l.To.ID] {
+			continue
+		}
+		id := l.From.ID
+		if listed[id] || seen[id] {
+			continue
+		}
+		seen[id] = true
+		suggested = append(suggested, id)
+	}
+	sort.Slice(suggested, func(i, j int) bool { return naturalLess(suggested[i], suggested[j]) })
+	if len(suggested) <= maxAdvisoryASVS {
+		return strings.Join(suggested, ", ")
+	}
+	more := len(suggested) - maxAdvisoryASVS
+	return strings.Join(suggested[:maxAdvisoryASVS], ", ") + fmt.Sprintf(locale.Text(lang, " (+%d more)"), more)
 }

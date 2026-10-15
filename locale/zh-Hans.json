@@ -1909,5 +1909,11 @@
   "Method": "方法",
   "Evidence": "证据",
   "Findings": "发现",
-  "Reason": "原因"
+  "Reason": "原因",
+  "## Findings by OWASP Top 10\n\n": "## 按 OWASP Top 10 归类的发现\n\n",
+  "ASVS (advisory) lists requirements linked to the finding's CWE through the OpenCRE crosswalk. These links are not authoritative.": "“ASVS（参考）”列出通过 OpenCRE 交叉映射与该发现 CWE 相关联的要求。这些关联不具权威性。",
+  "| Finding | Severity | Status | CWE | ASVS | ASVS (advisory) |\n| --- | --- | --- | --- | --- | --- |\n": "| 发现 | 严重程度 | 状态 | CWE | ASVS | ASVS（参考） |\n| --- | --- | --- | --- | --- | --- |\n",
+  "Unclassified": "未分类",
+  "No findings recorded for this task.": "此任务未记录任何发现。",
+  " (+%d more)": "（另有 %d 项）"
 }

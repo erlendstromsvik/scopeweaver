@@ -69,6 +69,23 @@ func TestCoverageReportHandler(t *testing.T) {
 		t.Fatalf("UpsertControlResult: %v", err)
 	}
 
+	// Seed a finding with refs so the Markdown "Findings by OWASP Top 10"
+	// section (E.5c) has something to render.
+	fid, err := m.pg.AddFinding(taskID, 0, "XSS", "Reflected XSS in search", "high", "s", "poc", "worker", nil)
+	if err != nil {
+		t.Fatalf("AddFinding: %v", err)
+	}
+	for _, r := range [][2]string{
+		{db.SchemeCWE, "CWE-79"},
+		{db.SchemeOWASPTop10, "A05:2025"},
+		{db.SchemeASVS, "V5.1.1"},
+	} {
+		if _, err := m.pg.AddFindingRef(fid, r[0], r[1]); err != nil {
+			t.Fatalf("AddFindingRef(%s,%s): %v", r[0], r[1], err)
+		}
+	}
+	t.Cleanup(func() { m.pg.DeleteFindingsByTask(taskID) })
+
 	base := "/api/tasks/" + task.ID + "/coverage-report"
 
 	// No auth -> 401.
@@ -154,6 +171,14 @@ func TestCoverageReportHandler(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "# Coverage report") {
 		t.Error("md missing '# Coverage report' header")
+	}
+	// E.5c: the Markdown report carries the findings-by-Top-10 section with the
+	// seeded finding's name.
+	if !strings.Contains(w.Body.String(), "## Findings by OWASP Top 10") {
+		t.Error("md missing '## Findings by OWASP Top 10' section")
+	}
+	if !strings.Contains(w.Body.String(), "Reflected XSS in search") {
+		t.Error("md missing the seeded finding name in the Top 10 section")
 	}
 
 	// format=pdf -> 400.
