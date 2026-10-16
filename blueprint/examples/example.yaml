@@ -56,6 +56,12 @@ runtime:
   workers: 2                        # >= 1
   llm_max_concurrent: 2             # >= 1
   web_search_enabled: false         # bool
+  llm_pool: spread                  # "", off (default) | failover | spread:
+                                    # off = single active profile; failover =
+                                    # the active profile leads and others are
+                                    # fallbacks; spread = profiles sharing the
+                                    # active profile's priority alternate the
+                                    # lead per request (see llm_extra below)
 
 # standards: names test profiles whose requirements are seeded as
 # not_tested control results at provisioning, so coverage is visible from
@@ -69,6 +75,24 @@ llm:                                # the LOCAL model binding
   base_url: ${env:ARTEX_LLM_BASE_URL}   # required; a literal URL or a secret ref
   api_key: ${env:ARTEX_LLM_API_KEY}     # SECRET REF ONLY: ${env:VAR} or ${file:/path}; may be omitted when provider is ollama
   max_tokens: 0                     # >= 0 ; 0 means model default
+  reasoning_effort: xhigh           # "", low, medium, high, xhigh or max
+  max_concurrent: 0                 # >= 0 ; 0 = the global llm_max_concurrent
+
+# llm_extra: additional LLMs the instance can alternate requests across
+# (needs runtime.llm_pool above). Each entry repeats the `llm` fields plus a
+# required unique `name` (different from the blueprint name). Provisioning
+# saves each as a profile with the main profile's priority, so with
+# llm_pool: spread the two LLMs alternate the lead per request. The
+# launcher copies ~/.config/sw/llm_api_key_<name> (or
+# $SW_LLM_API_KEY_FILE_<NAME>) to /run/secrets/llm_api_key_<name>.
+# llm_extra:
+#   - name: spark
+#     provider: openai-compatible
+#     model: spark-llm
+#     base_url: http://192.168.1.20:11434/v1
+#     api_key: ${file:/run/secrets/llm_api_key_spark}
+#     reasoning_effort: xhigh
+#     max_concurrent: 2
 
 admin:
   username: ARTEX                   # fixed; informational only

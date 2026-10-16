@@ -94,6 +94,45 @@ standards: [asvs-l2-web]
 key; every other provider still requires a secret ref, and inline keys are
 rejected.
 
+**Several LLMs per instance (`llm_extra:` + `runtime.llm_pool`).** A
+blueprint can declare extra local LLMs that the instance alternates
+requests across. `llm` stays the active profile; each `llm_extra:` entry
+repeats the `llm` fields plus a required unique `name` (different from
+the blueprint name). Provisioning saves every extra as a profile with the
+main profile's priority. `runtime.llm_pool` picks the mode: `off`
+(default, single active profile), `failover` (the active profile leads,
+the others are fallbacks) or `spread` (profiles sharing the active
+profile's priority alternate the lead per request, so both LLMs serve
+work in parallel). When the pool is on, the blueprint task runs on the
+pooled global provider instead of being pinned to one profile.
+
+```yaml
+runtime:
+  llm_pool: spread
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://192.168.1.10:11434/v1
+  api_key: ${file:/run/secrets/llm_api_key}
+  reasoning_effort: xhigh
+llm_extra:
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://192.168.1.20:11434/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+    reasoning_effort: xhigh
+    max_concurrent: 2
+```
+
+Key files: the launcher copies each extra's host key into the instance as
+`/run/secrets/llm_api_key_<name>`. It looks for
+`$SW_LLM_API_KEY_FILE_<NAME>` (the name upper-cased, `-` → `_`; must
+exist when set) first, then
+`~/.config/sw/llm_api_key_<name>` (`$XDG_CONFIG_HOME` honoured). A
+missing key is refused before the instance is created. An extra may also
+point at the main `/run/secrets/llm_api_key` to reuse the same key.
+
 ## The cycle
 
 All commands run from the repo root. The `make` targets are thin wrappers
