@@ -17,8 +17,10 @@
 # Environment:
 #   SW_HOME         instance-state root (default ~/.scopeweaver/instances)
 #   SW_IMAGE        app image (default scopeweaver:local)
-#   SW_LLM_API_KEY_FILE  optional host file whose contents are copied into
-#                        the instance's secrets dir as llm_api_key
+#   SW_LLM_API_KEY_FILE  host file whose contents are copied into the
+#                        instance's secrets dir as llm_api_key (default
+#                        ${XDG_CONFIG_HOME:-~/.config}/sw/llm_api_key, used
+#                        when it exists)
 #
 # --dry-run prints every docker/curl/go command instead of running it, but
 # still creates the instance directory so the generated files can be checked.
@@ -35,6 +37,7 @@ COMPOSE_FILE="$REPO_ROOT/deploy/instance/compose.yml"
 SW_HOME="${SW_HOME:-$HOME/.scopeweaver/instances}"
 SW_IMAGE="${SW_IMAGE:-scopeweaver:local}"
 DEFAULT_DELIVERABLES="$HOME/scopeweaver-deliverables"
+DEFAULT_LLM_API_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/sw/llm_api_key"
 ADMIN_USER="ARTEX"
 
 # run <cmd...> — echo, then execute unless --dry-run was given.
@@ -113,6 +116,21 @@ cmd_launch() {
 		die "blueprint $bp: admin.password must be a file secret ref (\${file:/run/secrets/admin_password}); \${env:…} refs are not supported for instances (owner decision D6)"
 	fi
 
+	# The LLM key: an explicit SW_LLM_API_KEY_FILE must exist; otherwise the
+	# default per-user key file is used when present. A blueprint that reads
+	# /run/secrets/llm_api_key without a key to copy would boot and then fail
+	# every LLM call, so refuse it here instead.
+	local llm_key_file=""
+	if [ -n "${SW_LLM_API_KEY_FILE:-}" ]; then
+		[ -f "$SW_LLM_API_KEY_FILE" ] || die "SW_LLM_API_KEY_FILE not found: $SW_LLM_API_KEY_FILE"
+		llm_key_file="$SW_LLM_API_KEY_FILE"
+	elif [ -f "$DEFAULT_LLM_API_KEY_FILE" ]; then
+		llm_key_file="$DEFAULT_LLM_API_KEY_FILE"
+	fi
+	if [ -z "$llm_key_file" ] && grep -q '/run/secrets/llm_api_key' "$bp"; then
+		die "blueprint $bp reads /run/secrets/llm_api_key but no key file was found: put the key in $DEFAULT_LLM_API_KEY_FILE or set SW_LLM_API_KEY_FILE"
+	fi
+
 	local id rand
 	rand="$(rand_hex 2)"
 	id="sw-$(date -u +%Y%m%d-%H%M%S)-${rand}"
@@ -127,9 +145,9 @@ cmd_launch() {
 	pg_password="$(gen_password)"
 	(umask 077; printf '%s\n' "$admin_password" >"$dir/secrets/admin_password")
 	(umask 077; printf '%s\n' "$pg_password" >"$dir/secrets/pg_password")
-	if [ -n "${SW_LLM_API_KEY_FILE:-}" ]; then
-		[ -f "$SW_LLM_API_KEY_FILE" ] || die "SW_LLM_API_KEY_FILE not found: $SW_LLM_API_KEY_FILE"
-		(umask 077; cp "$SW_LLM_API_KEY_FILE" "$dir/secrets/llm_api_key")
+	if [ -n "$llm_key_file" ]; then
+		(umask 077; cp "$llm_key_file" "$dir/secrets/llm_api_key")
+		chmod 600 "$dir/secrets/llm_api_key"
 	fi
 
 	# The DSN lives in a read-only mounted config file, not in the
@@ -154,7 +172,11 @@ cmd_launch() {
 	else
 		printf 'url:     (dry run — run `docker compose -p %s -f %s port app 8787`)\n' "$id" "$COMPOSE_FILE"
 	fi
-	printf 'secrets: %s/secrets (admin_password, pg_password; mode 600)\n' "$dir"
+	if [ -n "$llm_key_file" ]; then
+		printf 'secrets: %s/secrets (admin_password, pg_password, llm_api_key from %s; mode 600)\n' "$dir" "$llm_key_file"
+	else
+		printf 'secrets: %s/secrets (admin_password, pg_password; mode 600)\n' "$dir"
+	fi
 	printf 'deliverables: %s/%s\n' "$deliverables" "$id"
 	printf 'login:   username %s, password in %s/secrets/admin_password\n' "$ADMIN_USER" "$dir"
 }

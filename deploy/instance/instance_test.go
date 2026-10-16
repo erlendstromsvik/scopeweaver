@@ -37,11 +37,13 @@ func composePath(t *testing.T) string {
 }
 
 // runScript runs sw-instance.sh with the given args and env overrides,
-// returning stdout+stderr and the exit error.
+// returning stdout+stderr and the exit error. XDG_CONFIG_HOME defaults to
+// an empty temp dir so the operator's real default LLM key file is never
+// picked up by a test.
 func runScript(t *testing.T, env map[string]string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{scriptPath(t)}, args...)...)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "SW_LLM_API_KEY_FILE=", "XDG_CONFIG_HOME="+t.TempDir())
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -165,6 +167,66 @@ func TestLaunchRejectsEnvSecretBlueprint(t *testing.T) {
 	// No instance dir should have been created.
 	entries, _ := os.ReadDir(home)
 	if len(entries) != 0 {
+		t.Errorf("expected no instance dirs, got %v", entries)
+	}
+}
+
+// TestLaunchUsesDefaultLLMKeyFile: with no SW_LLM_API_KEY_FILE, launch
+// copies $XDG_CONFIG_HOME/sw/llm_api_key into the instance secrets (600).
+func TestLaunchUsesDefaultLLMKeyFile(t *testing.T) {
+	root := repoRoot(t)
+	home := t.TempDir()
+	cfgHome := t.TempDir()
+	keyPath := filepath.Join(cfgHome, "sw", "llm_api_key")
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("fake-llm-key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bp := filepath.Join(root, "deploy", "instance", "testdata", "blueprint-llm-key.yaml")
+
+	out, err := runScript(t, map[string]string{"SW_HOME": home, "XDG_CONFIG_HOME": cfgHome},
+		"--dry-run", "launch", "BP="+bp, "DELIVERABLES=/tmp/sw-test-deliverables")
+	if err != nil {
+		t.Fatalf("dry-run launch failed: %v\noutput:\n%s", err, out)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected 1 instance dir, got %v (err %v)", entries, err)
+	}
+	secret := filepath.Join(home, entries[0].Name(), "secrets", "llm_api_key")
+	if got := string(mustRead(t, secret)); got != "fake-llm-key\n" {
+		t.Errorf("llm_api_key = %q, want the default key file's contents", got)
+	}
+	st, err := os.Stat(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm != 0o600 {
+		t.Errorf("llm_api_key mode %o, want 600", perm)
+	}
+	if !strings.Contains(out, keyPath) {
+		t.Errorf("output does not name the key file used\noutput:\n%s", out)
+	}
+}
+
+// TestLaunchRejectsMissingLLMKey: a blueprint that reads
+// /run/secrets/llm_api_key with no key file available is refused before
+// any instance state is created.
+func TestLaunchRejectsMissingLLMKey(t *testing.T) {
+	root := repoRoot(t)
+	home := t.TempDir()
+	bp := filepath.Join(root, "deploy", "instance", "testdata", "blueprint-llm-key.yaml")
+
+	out, err := runScript(t, map[string]string{"SW_HOME": home}, "--dry-run", "launch", "BP="+bp)
+	if err == nil {
+		t.Fatalf("expected non-zero exit with no LLM key file; output:\n%s", out)
+	}
+	if !strings.Contains(out, "no key file was found") {
+		t.Errorf("error does not explain the missing key file\noutput:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("expected no instance dirs, got %v", entries)
 	}
 }

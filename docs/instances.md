@@ -138,8 +138,11 @@ login:   username ARTEX, password in .../secrets/admin_password
 **Where secrets live:** `~/.scopeweaver/instances/<id>/secrets/` — the
 instance directory and the `secrets` and `sw` subdirectories are mode 700;
 each secret file is written under `umask 077` (mode 600). The files are
-`admin_password`, `pg_password`, and `llm_api_key` if you supplied
-`SW_LLM_API_KEY_FILE=<host file>` in the environment before launching.
+`admin_password`, `pg_password`, and `llm_api_key`. The LLM key is copied
+from `~/.config/sw/llm_api_key` (`$XDG_CONFIG_HOME/sw/llm_api_key`) when that
+file exists; set `SW_LLM_API_KEY_FILE=<host file>` to use another file. If the
+blueprint reads `/run/secrets/llm_api_key` and no key file is found, launch
+stops before creating anything.
 `destroy` deletes the whole directory.
 
 The instance state root is `~/.scopeweaver/instances` (override with
