@@ -35,6 +35,7 @@ func TestScopeSpecsToInputs(t *testing.T) {
 // including the *bool coverage flag. DB-free.
 func TestBlueprintTaskOptions(t *testing.T) {
 	plan := &provision.Plan{
+		Settings: provision.SettingsSpec{LLMPool: "off"},
 		Task: provision.TaskSpec{
 			Description:          "desc",
 			Goal:                 "goal",
@@ -69,6 +70,34 @@ func TestBlueprintTaskOptions(t *testing.T) {
 	planOff := &provision.Plan{Task: provision.TaskSpec{CoverageEnabled: false}}
 	if off := blueprintTaskOptions(planOff, 1, 2).CoverageEnabled; off == nil || *off != false {
 		t.Errorf("CoverageEnabled off: got %v, want pointer to false", off)
+	}
+}
+
+// TestBlueprintTaskOptionsPool checks the D.7b pool rule: with llm_pool off
+// the task pins the main profile; with the pool on (failover or spread)
+// LLMProfileIDs stays nil so the task runs on the pooled global provider
+// (a task bound to one profile bypasses the pool — task_llm.go current()).
+func TestBlueprintTaskOptionsPool(t *testing.T) {
+	for _, tc := range []struct {
+		pool     string
+		wantBind bool
+	}{
+		{"off", true},
+		{"failover", false},
+		{"spread", false},
+	} {
+		plan := &provision.Plan{Settings: provision.SettingsSpec{LLMPool: tc.pool}}
+		opts := blueprintTaskOptions(plan, 7, 21)
+		if tc.wantBind {
+			if len(opts.LLMProfileIDs) != 1 || opts.LLMProfileIDs[0] != 21 {
+				t.Errorf("pool %q: LLMProfileIDs = %v, want [21]", tc.pool, opts.LLMProfileIDs)
+			}
+		} else if opts.LLMProfileIDs != nil {
+			t.Errorf("pool %q: LLMProfileIDs = %v, want nil (pooled global provider)", tc.pool, opts.LLMProfileIDs)
+		}
+		if len(opts.CompanyIDs) != 1 || opts.CompanyIDs[0] != 7 {
+			t.Errorf("pool %q: CompanyIDs = %v, want [7]", tc.pool, opts.CompanyIDs)
+		}
 	}
 }
 
