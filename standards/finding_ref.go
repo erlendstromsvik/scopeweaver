@@ -15,16 +15,17 @@ const (
 	findingSchemeWSTG       = "wstg"
 	findingSchemeOWASPTop10 = "owasp-top10"
 	findingSchemeCVSS       = "cvss"
+	findingSchemeCVE        = "cve"
 )
 
 // ResolveFindingRef checks one classification ref against the embedded
 // standards catalog. asvs/wstg/owasp-top10 must resolve as real catalog ids
-// (owasp-top10 maps to the catalog's "top10"); cwe and cvss return nil because
-// CWE is not embedded and a CVSS vector is not a catalog id — the db store's
-// shape check covers those. An unknown scheme is an error.
+// (owasp-top10 maps to the catalog's "top10"); cwe, cvss and cve return nil because
+// CWE is not embedded, a CVSS vector is not a catalog id, and there is no CVE
+// catalog — the db store's shape check covers those. An unknown scheme is an error.
 func ResolveFindingRef(scheme, ref string) error {
 	switch scheme {
-	case findingSchemeCWE, findingSchemeCVSS:
+	case findingSchemeCWE, findingSchemeCVSS, findingSchemeCVE:
 		return nil
 	case findingSchemeASVS, findingSchemeWSTG, findingSchemeOWASPTop10:
 	default:

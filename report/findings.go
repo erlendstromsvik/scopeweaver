@@ -155,7 +155,7 @@ func FindingsCSV(fs []*db.DBFinding, langs ...locale.Lang) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"ID", locale.Text(lang, "Name"), locale.Text(lang, "Class"), locale.Text(lang, "Severity"), locale.Text(lang, "Status"), locale.Text(lang, "Task"), locale.Text(lang, "Found at"), locale.Text(lang, "Overview"), locale.Text(lang, "Traffic evidence count"), locale.Text(lang, "Traffic evidence IDs"), "CWE", "ASVS", "WSTG", "OWASP Top 10", "CVSS"})
+	_ = w.Write([]string{"ID", locale.Text(lang, "Name"), locale.Text(lang, "Class"), locale.Text(lang, "Severity"), locale.Text(lang, "Status"), locale.Text(lang, "Task"), locale.Text(lang, "Found at"), locale.Text(lang, "Overview"), locale.Text(lang, "Traffic evidence count"), locale.Text(lang, "Traffic evidence IDs"), "CWE", "ASVS", "WSTG", "OWASP Top 10", "CVSS", "CVE"})
 	for _, f := range items {
 		_ = w.Write([]string{
 			fmt.Sprintf("%d", f.ID),
@@ -172,6 +172,7 @@ func FindingsCSV(fs []*db.DBFinding, langs ...locale.Lang) []byte {
 			findingRefsCell(f, db.SchemeWSTG),
 			findingRefsCell(f, db.SchemeOWASPTop10),
 			findingRefsCell(f, db.SchemeCVSS),
+			findingRefsCell(f, db.SchemeCVE),
 		})
 	}
 	w.Flush()

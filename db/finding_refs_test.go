@@ -36,6 +36,7 @@ func TestAddFindingRefEachScheme(t *testing.T) {
 		{SchemeWSTG, "WSTG-INFO-01"},
 		{SchemeOWASPTop10, "A05:2025"},
 		{SchemeCVSS, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+		{SchemeCVE, "CVE-2024-3400"},
 	}
 	for _, r := range refs {
 		id, err := d.AddFindingRef(fid, r.scheme, r.ref)
@@ -55,7 +56,7 @@ func TestAddFindingRefEachScheme(t *testing.T) {
 		t.Fatalf("ListFindingRefs returned %d refs, want %d", len(got), len(refs))
 	}
 	// Ordered by scheme then ref.
-	wantOrder := []string{"asvs", "cvss", "cwe", "owasp-top10", "wstg"}
+	wantOrder := []string{"asvs", "cve", "cvss", "cwe", "owasp-top10", "wstg"}
 	for i, want := range wantOrder {
 		if got[i].Scheme != want {
 			t.Fatalf("ref %d scheme = %q, want %q", i, got[i].Scheme, want)
@@ -125,6 +126,9 @@ func TestAddFindingRefRejectsInvalid(t *testing.T) {
 		{"whitespace-only ref", SchemeASVS, "   "},
 		{"malformed cwe", SchemeCWE, "79"},
 		{"malformed owasp-top10", SchemeOWASPTop10, "A05:2021"},
+		{"malformed cve short serial", SchemeCVE, "CVE-24-1"},
+		{"malformed cve no serial", SchemeCVE, "CVE-2024"},
+		{"bare cve word", SchemeCVE, "cve"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

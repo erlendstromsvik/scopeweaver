@@ -29,12 +29,13 @@ const (
 	SchemeWSTG       = "wstg"        // OWASP WSTG test, e.g. WSTG-INFO-01.
 	SchemeOWASPTop10 = "owasp-top10" // OWASP Top 10 category, e.g. A05:2025.
 	SchemeCVSS       = "cvss"        // CVSS vector string.
+	SchemeCVE        = "cve"         // CVE identifier, e.g. CVE-2024-3400.
 )
 
 // ValidRefScheme reports whether s is a known classification scheme.
 func ValidRefScheme(s string) bool {
 	switch s {
-	case SchemeCWE, SchemeASVS, SchemeWSTG, SchemeOWASPTop10, SchemeCVSS:
+	case SchemeCWE, SchemeASVS, SchemeWSTG, SchemeOWASPTop10, SchemeCVSS, SchemeCVE:
 		return true
 	}
 	return false
@@ -45,6 +46,7 @@ func ValidRefScheme(s string) bool {
 var (
 	reCWE        = regexp.MustCompile(`^CWE-\d+$`)
 	reOWASPTop10 = regexp.MustCompile(`^A\d{2}:2025$`)
+	reCVE        = regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
 )
 
 // validateFindingRef validates the scheme and ref and returns the trimmed ref.
@@ -63,6 +65,10 @@ func validateFindingRef(scheme, ref string) (string, error) {
 	case SchemeCWE:
 		if !reCWE.MatchString(ref) {
 			return "", locale.Errorf("cwe ref %q must look like CWE-79", ref)
+		}
+	case SchemeCVE:
+		if !reCVE.MatchString(ref) {
+			return "", locale.Errorf("cve ref %q must look like CVE-2024-3400", ref)
 		}
 	case SchemeOWASPTop10:
 		if !reOWASPTop10.MatchString(ref) {

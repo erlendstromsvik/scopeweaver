@@ -124,7 +124,7 @@ func TestReportFindingRefsSchemaAdvertised(t *testing.T) {
 		t.Fatalf("refs item has no scheme property: %+v", itemProps)
 	}
 	enum, ok := scheme["enum"].([]string)
-	if !ok || strings.Join(enum, ",") != "cwe,asvs,wstg,owasp-top10,cvss" {
+	if !ok || strings.Join(enum, ",") != "cwe,asvs,wstg,owasp-top10,cvss,cve" {
 		t.Fatalf("scheme enum mismatch: %#v", scheme["enum"])
 	}
 	if _, ok := itemProps["ref"].(map[string]any); !ok {

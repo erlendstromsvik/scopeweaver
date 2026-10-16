@@ -1841,7 +1841,7 @@
   "Affected asset ID": "受影响的资产 ID",
   "Actual traffic ID returned by traffic_search": "traffic_search 返回的实际流量 ID",
   "How this traffic supports the finding": "此流量如何支持发现",
-  "Optional classification of the finding, e.g. {scheme: cwe, ref: CWE-79}, {scheme: owasp-top10, ref: A05:2025}, {scheme: asvs, ref: V5.1.1}. Only IDs you are confident about.": "发现的可选分类，例如 {scheme: cwe, ref: CWE-79}、{scheme: owasp-top10, ref: A05:2025}、{scheme: asvs, ref: V5.1.1}。只填写您有把握的 ID。",
+  "Optional classification of the finding, e.g. {scheme: cwe, ref: CWE-79}, {scheme: owasp-top10, ref: A05:2025}, {scheme: asvs, ref: V5.1.1}, {scheme: cve, ref: CVE-2024-3400}. Only IDs you are confident about.": "发现的可选分类，例如 {scheme: cwe, ref: CWE-79}、{scheme: owasp-top10, ref: A05:2025}、{scheme: asvs, ref: V5.1.1}、{scheme: cve, ref: CVE-2024-3400}。只填写您有把握的 ID。",
   "Classification reference, e.g. CWE-79 or A05:2025": "分类引用，例如 CWE-79 或 A05:2025",
   "Preferred: ordered hints array; each item uses text/asset_ids/traffic_refs. Returned ids match input length/order.": "优先使用有序 hints 数组；每项包含 text/asset_ids/traffic_refs。返回的 ids 与输入长度和顺序一致。",
   "scope[%d] must be a string or {kind,value}": "scope[%d] 必须为字符串或 {kind,value}",

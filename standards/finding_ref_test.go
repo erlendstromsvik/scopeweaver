@@ -20,6 +20,7 @@ func TestResolveFindingRef(t *testing.T) {
 		{"top10 miss", "owasp-top10", "A99:2025", true},
 		{"cwe shape-only", "cwe", "CWE-79", false},
 		{"cvss shape-only", "cvss", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", false},
+		{"cve shape-only", "cve", "CVE-2024-3400", false},
 		{"unknown scheme", "nope", "whatever", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
