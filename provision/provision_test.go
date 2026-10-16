@@ -3,6 +3,7 @@ package provision
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Autumn-27/artex/blueprint"
@@ -243,6 +244,7 @@ func TestBuildPlan(t *testing.T) {
 
 	// Profile (with resolved secrets). provider "openai" maps to format "openai".
 	wantProfile := ProfileSpec{
+		Name:      "acme-test",
 		Format:    "openai",
 		Model:     "local-model",
 		BaseURL:   "http://localhost:1234/v1",
@@ -267,7 +269,8 @@ func TestBuildPlan(t *testing.T) {
 	}
 
 	// Settings.
-	wantSettings := SettingsSpec{Workers: 4, LLMMaxConcurrent: 2, WebSearchEnabled: true}
+	// LLMPool normalizes "" to "off".
+	wantSettings := SettingsSpec{Workers: 4, LLMMaxConcurrent: 2, WebSearchEnabled: true, LLMPool: "off"}
 	if plan.Settings != wantSettings {
 		t.Errorf("Settings = %+v, want %+v", plan.Settings, wantSettings)
 	}
@@ -323,5 +326,173 @@ func TestBuildPlanProviderFormat(t *testing.T) {
 				t.Errorf("provider %q -> format %q, want %q", tc.provider, plan.Profile.Format, tc.wantFormat)
 			}
 		})
+	}
+}
+
+// TestResolveSecretsExtra checks each llm_extra entry's api_key and base_url
+// resolve by the same rules as the main llm block, in order.
+func TestResolveSecretsExtra(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "spark.key")
+	if err := writeFile(keyFile, "spark-key\n"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	t.Setenv("PROVISION_ADMIN_PW", "admin-pw")
+	t.Setenv("PROVISION_SPARK_URL", "http://ref-spark:8080/v1")
+
+	bp := &blueprint.Blueprint{
+		Admin: blueprint.Admin{Password: "${env:PROVISION_ADMIN_PW}"},
+		LLM: blueprint.LLM{
+			Provider: "openai-compatible",
+			Model:    "main",
+			BaseURL:  "http://main:1234/v1",
+			APIKey:   "${env:PROVISION_PLAN_KEY}",
+		},
+		LLMExtra: []blueprint.ExtraLLM{
+			{
+				Name: "spark",
+				LLM: blueprint.LLM{
+					Provider: "openai-compatible",
+					Model:    "spark-llm",
+					BaseURL:  "http://spark:8080/v1",
+					APIKey:   "${file:" + keyFile + "}",
+				},
+			},
+			{
+				Name: "ollie",
+				LLM: blueprint.LLM{
+					Provider: "ollama",
+					Model:    "qwen3",
+					BaseURL:  "${env:PROVISION_SPARK_URL}",
+				},
+			},
+		},
+	}
+	t.Setenv("PROVISION_PLAN_KEY", "main-key")
+
+	s, err := ResolveSecrets(bp)
+	if err != nil {
+		t.Fatalf("ResolveSecrets: %v", err)
+	}
+	if len(s.Extra) != 2 {
+		t.Fatalf("len(Extra) = %d, want 2", len(s.Extra))
+	}
+	if s.Extra[0].APIKey != "spark-key" {
+		t.Errorf("Extra[0].APIKey = %q, want spark-key", s.Extra[0].APIKey)
+	}
+	if s.Extra[0].BaseURL != "http://spark:8080/v1" {
+		t.Errorf("Extra[0].BaseURL = %q, want literal passthrough", s.Extra[0].BaseURL)
+	}
+	if s.Extra[1].APIKey != "" {
+		t.Errorf("Extra[1].APIKey = %q, want empty (keyless ollama)", s.Extra[1].APIKey)
+	}
+	if s.Extra[1].BaseURL != "http://ref-spark:8080/v1" {
+		t.Errorf("Extra[1].BaseURL = %q, want resolved ref", s.Extra[1].BaseURL)
+	}
+
+	t.Run("error names the extra field", func(t *testing.T) {
+		bad := &blueprint.Blueprint{
+			Admin: blueprint.Admin{Password: "${env:PROVISION_ADMIN_PW}"},
+			LLM:   blueprint.LLM{Provider: "ollama", Model: "m", BaseURL: "http://x"},
+			LLMExtra: []blueprint.ExtraLLM{
+				{Name: "spark", LLM: blueprint.LLM{
+					Provider: "openai-compatible", Model: "s",
+					BaseURL: "http://spark:8080/v1",
+					APIKey:  "${env:PROVISION_MISSING_EXTRA_KEY}",
+				}},
+			},
+		}
+		_, err := ResolveSecrets(bad)
+		if err == nil {
+			t.Fatal("want error for unset extra api_key env")
+		}
+		if !strings.Contains(err.Error(), "llm_extra[0].api_key") {
+			t.Errorf("error %q does not name llm_extra[0].api_key", err)
+		}
+	})
+}
+
+// TestBuildPlanExtraLLM checks the plan carries one profile per LLM (main +
+// extras) with its reasoning effort and concurrency, and that the pool mode
+// normalizes "" to "off" and passes failover/spread through.
+func TestBuildPlanExtraLLM(t *testing.T) {
+	t.Setenv("PROVISION_ADMIN_PW", "admin-pw")
+	t.Setenv("PROVISION_PLAN_KEY", "main-key")
+	t.Setenv("PROVISION_SPARK_KEY", "spark-key")
+
+	bp := &blueprint.Blueprint{
+		Version: blueprint.SchemaVersion,
+		Name:    "acme-test",
+		Runtime: blueprint.Runtime{Workers: 2, LLMMaxConcurrent: 2, LLMPool: "spread"},
+		LLM: blueprint.LLM{
+			Provider:        "openai-compatible",
+			Model:           "qwen-3.8",
+			BaseURL:         "http://main:11434/v1",
+			APIKey:          "${env:PROVISION_PLAN_KEY}",
+			ReasoningEffort: "xhigh",
+		},
+		LLMExtra: []blueprint.ExtraLLM{
+			{
+				Name: "spark",
+				LLM: blueprint.LLM{
+					Provider:        "openai-compatible",
+					Model:           "spark-llm",
+					BaseURL:         "http://spark:8080/v1",
+					APIKey:          "${env:PROVISION_SPARK_KEY}",
+					ReasoningEffort: "xhigh",
+					MaxConcurrent:   3,
+				},
+			},
+		},
+		Admin: blueprint.Admin{Username: "root", Password: "${env:PROVISION_ADMIN_PW}"},
+	}
+
+	secrets, err := ResolveSecrets(bp)
+	if err != nil {
+		t.Fatalf("ResolveSecrets: %v", err)
+	}
+	plan, err := BuildPlan(bp, secrets)
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+
+	if plan.Profile.Name != "acme-test" {
+		t.Errorf("Profile.Name = %q, want acme-test (bp.Name)", plan.Profile.Name)
+	}
+	if plan.Profile.ReasoningEffort != "xhigh" {
+		t.Errorf("Profile.ReasoningEffort = %q, want xhigh", plan.Profile.ReasoningEffort)
+	}
+	if plan.Profile.MaxConcurrent != 0 {
+		t.Errorf("Profile.MaxConcurrent = %d, want 0 (global)", plan.Profile.MaxConcurrent)
+	}
+	if len(plan.ExtraProfiles) != 1 {
+		t.Fatalf("len(ExtraProfiles) = %d, want 1", len(plan.ExtraProfiles))
+	}
+	wantExtra := ProfileSpec{
+		Name:            "spark",
+		Format:          "openai",
+		Model:           "spark-llm",
+		BaseURL:         "http://spark:8080/v1",
+		APIKey:          "spark-key",
+		ReasoningEffort: "xhigh",
+		MaxConcurrent:   3,
+	}
+	if plan.ExtraProfiles[0] != wantExtra {
+		t.Errorf("ExtraProfiles[0] = %+v, want %+v", plan.ExtraProfiles[0], wantExtra)
+	}
+	if plan.Settings.LLMPool != "spread" {
+		t.Errorf("Settings.LLMPool = %q, want spread", plan.Settings.LLMPool)
+	}
+
+	// "" normalizes to "off"; "failover" passes through.
+	for pool, want := range map[string]string{"": "off", "failover": "failover"} {
+		bp.Runtime.LLMPool = pool
+		p, err := BuildPlan(bp, secrets)
+		if err != nil {
+			t.Fatalf("BuildPlan(pool=%q): %v", pool, err)
+		}
+		if p.Settings.LLMPool != want {
+			t.Errorf("pool %q -> %q, want %q", pool, p.Settings.LLMPool, want)
+		}
 	}
 }

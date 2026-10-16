@@ -84,6 +84,15 @@ type Secrets struct {
 	AdminPassword string // resolved from blueprint.Admin.Password (always a ref)
 	LLMAPIKey     string // resolved from blueprint.LLM.APIKey (a ref, or "" when omitted for ollama)
 	LLMBaseURL    string // blueprint.LLM.BaseURL, resolved if a ref, else literal
+	// Extra holds the resolved secrets for each blueprint llm_extra entry,
+	// in the same order as bp.LLMExtra.
+	Extra []ExtraSecrets
+}
+
+// ExtraSecrets is one llm_extra entry's resolved secrets.
+type ExtraSecrets struct {
+	APIKey  string // resolved from the entry's api_key ("" when omitted for ollama)
+	BaseURL string // the entry's base_url, resolved if a ref, else literal
 }
 
 // ResolveSecrets resolves every secret the blueprint needs.
@@ -93,7 +102,8 @@ type Secrets struct {
 // an ollama blueprint may omit it entirely (keyless local Ollama); an empty
 // api_key resolves to "" without a ResolveRef call. llm.base_url may be a
 // literal URL or a reference: it is resolved if it has the reference shape
-// and passed through verbatim otherwise.
+// and passed through verbatim otherwise. Each llm_extra entry is resolved by
+// the same rules, into Secrets.Extra (same order as bp.LLMExtra).
 func ResolveSecrets(bp *blueprint.Blueprint) (Secrets, error) {
 	var s Secrets
 	var err error
@@ -112,6 +122,23 @@ func ResolveSecrets(bp *blueprint.Blueprint) (Secrets, error) {
 		}
 	} else {
 		s.LLMBaseURL = bp.LLM.BaseURL
+	}
+	for i, ex := range bp.LLMExtra {
+		var e ExtraSecrets
+		prefix := fmt.Sprintf("llm_extra[%d]", i)
+		if strings.TrimSpace(ex.APIKey) != "" {
+			if e.APIKey, err = ResolveRef(ex.APIKey); err != nil {
+				return Secrets{}, fmt.Errorf("%s.api_key: %w", prefix, err)
+			}
+		}
+		if isRef(ex.BaseURL) {
+			if e.BaseURL, err = ResolveRef(ex.BaseURL); err != nil {
+				return Secrets{}, fmt.Errorf("%s.base_url: %w", prefix, err)
+			}
+		} else {
+			e.BaseURL = ex.BaseURL
+		}
+		s.Extra = append(s.Extra, e)
 	}
 	return s, nil
 }
@@ -136,11 +163,16 @@ type ConstraintSpec struct {
 // Format is the db wire format (db.llm_profiles.format), already translated from
 // the blueprint's llm.provider by [blueprint.ProviderFormat].
 type ProfileSpec struct {
+	Name      string
 	Format    string
 	Model     string
 	BaseURL   string
 	APIKey    string
 	MaxTokens int
+	// ReasoningEffort and MaxConcurrent mirror the blueprint llm fields;
+	// MaxConcurrent 0 means the global llm_max_concurrent setting.
+	ReasoningEffort string
+	MaxConcurrent   int
 }
 
 // TaskSpec is the exploration task to create and its limits.
@@ -158,6 +190,8 @@ type SettingsSpec struct {
 	Workers          int
 	LLMMaxConcurrent int
 	WebSearchEnabled bool
+	// LLMPool is the normalized runtime.llm_pool: "" becomes "off".
+	LLMPool string
 }
 
 // Plan is the complete, store-agnostic provisioning plan derived from a
@@ -169,8 +203,12 @@ type Plan struct {
 	Scope       []ScopeSpec
 	Constraints []ConstraintSpec
 	Profile     ProfileSpec
-	Task        TaskSpec
-	Settings    SettingsSpec
+	// ExtraProfiles are the blueprint's llm_extra entries, each ready to be
+	// saved as a profile alongside Profile (D.7b). Same priority as the main
+	// profile so the pool can spread the lead across them.
+	ExtraProfiles []ProfileSpec
+	Task          TaskSpec
+	Settings      SettingsSpec
 	// Standards are the blueprint's test-profile names; phase 2b seeds the
 	// requirements they select as not_tested control results (E.4).
 	Standards []string
@@ -209,6 +247,31 @@ func BuildPlan(bp *blueprint.Blueprint, s Secrets) (*Plan, error) {
 		return nil, fmt.Errorf("llm.provider %q has no known wire format", bp.LLM.Provider)
 	}
 
+	// Extra LLMs (D.7b): one profile spec per llm_extra entry, secrets from
+	// the matching Secrets.Extra slot. A validated blueprint always has every
+	// provider resolvable; guard anyway for direct calls.
+	extraProfiles := make([]ProfileSpec, 0, len(bp.LLMExtra))
+	for i, ex := range bp.LLMExtra {
+		ef, ok := blueprint.ProviderFormat(ex.Provider)
+		if !ok {
+			return nil, fmt.Errorf("llm_extra[%d].provider %q has no known wire format", i, ex.Provider)
+		}
+		var sec ExtraSecrets
+		if i < len(s.Extra) {
+			sec = s.Extra[i]
+		}
+		extraProfiles = append(extraProfiles, ProfileSpec{
+			Name:            ex.Name,
+			Format:          ef,
+			Model:           ex.Model,
+			BaseURL:         sec.BaseURL,
+			APIKey:          sec.APIKey,
+			MaxTokens:       ex.MaxTokens,
+			ReasoningEffort: ex.ReasoningEffort,
+			MaxConcurrent:   ex.MaxConcurrent,
+		})
+	}
+
 	return &Plan{
 		CompanyName: bp.Company.Name,
 		CompanyLogo: bp.Company.Logo,
@@ -216,12 +279,16 @@ func BuildPlan(bp *blueprint.Blueprint, s Secrets) (*Plan, error) {
 		Constraints: constraints,
 		Standards:   append([]string(nil), bp.Standards...),
 		Profile: ProfileSpec{
-			Format:    format,
-			Model:     bp.LLM.Model,
-			BaseURL:   s.LLMBaseURL,
-			APIKey:    s.LLMAPIKey,
-			MaxTokens: bp.LLM.MaxTokens,
+			Name:            bp.Name,
+			Format:          format,
+			Model:           bp.LLM.Model,
+			BaseURL:         s.LLMBaseURL,
+			APIKey:          s.LLMAPIKey,
+			MaxTokens:       bp.LLM.MaxTokens,
+			ReasoningEffort: bp.LLM.ReasoningEffort,
+			MaxConcurrent:   bp.LLM.MaxConcurrent,
 		},
+		ExtraProfiles: extraProfiles,
 		Task: TaskSpec{
 			// The blueprint carries a single task.goal and no separate
 			// description; it serves as both the exploration's starting-point
@@ -237,8 +304,18 @@ func BuildPlan(bp *blueprint.Blueprint, s Secrets) (*Plan, error) {
 			Workers:          bp.Runtime.Workers,
 			LLMMaxConcurrent: bp.Runtime.LLMMaxConcurrent,
 			WebSearchEnabled: bp.Runtime.WebSearchEnabled,
+			LLMPool:          normalizeLLMPool(bp.Runtime.LLMPool),
 		},
 		AdminUsername:     bp.Admin.Username,
 		AdminPasswordHash: string(hash),
 	}, nil
+}
+
+// normalizeLLMPool maps the blueprint's runtime.llm_pool onto the stored
+// pool mode: "" means off.
+func normalizeLLMPool(pool string) string {
+	if pool == "" {
+		return "off"
+	}
+	return pool
 }
