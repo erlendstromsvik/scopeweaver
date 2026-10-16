@@ -23,7 +23,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
       POSTGRES_DB: scopeweaver
     volumes:
-      - ${SW_INSTANCE_ID:-sw-instance}-pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/secrets:/run/secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scopeweaver -d scopeweaver"]
@@ -61,7 +61,7 @@ services:
       - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/secrets:/run/secrets:ro
       - ${SW_INSTANCE_DIR:?SW_INSTANCE_DIR is required}/sw:/run/sw:ro
       - ${SW_DELIVERABLES:?SW_DELIVERABLES is required}/${SW_INSTANCE_ID:-sw-instance}:/deliverables
-      - ${SW_INSTANCE_ID:-sw-instance}-appdata:/app/data
+      - appdata:/app/data
     networks: [internal, egress]
     restart: unless-stopped
 
@@ -73,6 +73,10 @@ networks:
   egress:
     internal: false
 
+# Volume names are static; compose scopes them per instance by the project
+# name (-p <id>), so two instances never share a volume and `down -v -p <id>`
+# removes exactly this instance's volumes. Interpolation is not allowed in the
+# keys of the top-level volumes mapping (a real compose engine rejects it).
 volumes:
-  ${SW_INSTANCE_ID:-sw-instance}-pgdata:
-  ${SW_INSTANCE_ID:-sw-instance}-appdata:
+  pgdata:
+  appdata:

@@ -463,3 +463,24 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return b
 }
+
+// TestComposeConfigValidatesWithEngine runs `docker compose config` against the
+// real compose engine, which catches schema errors a plain YAML parse misses —
+// notably variable interpolation in the keys of the top-level volumes mapping,
+// which an engine rejects ("additional properties not allowed"). Skips when no
+// docker/compose engine is available (e.g. the CI sandbox).
+func TestComposeConfigValidatesWithEngine(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
+		t.Skip("docker compose not available")
+	}
+	cmd := exec.Command("docker", "compose", "-p", "sw-cfgtest", "-f", composePath(t), "config", "-q")
+	cmd.Env = append(os.Environ(),
+		"SW_INSTANCE_DIR=/tmp/sw-cfgtest", "SW_DELIVERABLES=/tmp/sw-cfgtest-deliv",
+		"SW_INSTANCE_ID=sw-cfgtest", "SW_IMAGE=scopeweaver:local")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compose config rejected the template: %v\n%s", err, out)
+	}
+}
