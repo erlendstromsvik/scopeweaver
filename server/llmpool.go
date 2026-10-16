@@ -85,6 +85,14 @@ func chainRank(p *db.LLMProfile, headPriority int, spread bool) int {
 	return p.Priority
 }
 
+// spreadFor decides whether spread mode actually applies to a chain: only when
+// the setting is on AND the head is the globally active profile. A bound head
+// must keep its bound model as the lead — spreading the lead to same-priority
+// profiles would make a bound agent stop using its bound model half the time.
+func spreadFor(head *db.LLMProfile, spreadSetting bool) bool {
+	return spreadSetting && head.IsDefault
+}
+
 // poolChain reads the failover chain from the DB. headID/headProv/headCfg describe
 // the member that must lead the chain — the globally active profile on the normal
 // path, or an explicitly bound one when bound-profile fallback is on. The head is
@@ -125,10 +133,11 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 		if p.ID == headID {
 			continue
 		}
-		// Spread lets same-priority profiles share the head's rank; otherwise the
-		// globally active profile outranks the others (bound-fallback chains), so
-		// it stays the first fallback tried.
-		rank := chainRank(p, head.Priority, s.m.LLMPoolSpread())
+		// Spread lets same-priority profiles share the head's rank, but only on
+		// the globally-active chain (spreadFor); on a bound-fallback chain the
+		// bound head keeps the lead, and the globally active profile outranks the
+		// rest so it stays the first fallback tried.
+		rank := chainRank(p, head.Priority, spreadFor(head, s.m.LLMPoolSpread()))
 		if m := s.poolMember(p, rank); m != nil {
 			members = append(members, m)
 		}

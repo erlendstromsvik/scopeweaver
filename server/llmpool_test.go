@@ -71,3 +71,25 @@ func TestChainRank(t *testing.T) {
 		}
 	}
 }
+
+// Spread only applies to the globally-active chain. A bound (non-default) head
+// must keep its bound model as the lead even with the setting on — otherwise a
+// bound agent would stop using its bound model half the time.
+func TestSpreadFor(t *testing.T) {
+	cases := []struct {
+		name    string
+		head    db.LLMProfile
+		setting bool
+		want    bool
+	}{
+		{"setting off, active head", db.LLMProfile{IsDefault: true}, false, false},
+		{"setting off, bound head", db.LLMProfile{}, false, false},
+		{"setting on, active head", db.LLMProfile{IsDefault: true}, true, true},
+		{"setting on, bound head", db.LLMProfile{}, true, false},
+	}
+	for _, c := range cases {
+		if got := spreadFor(&c.head, c.setting); got != c.want {
+			t.Errorf("%s: spreadFor = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
