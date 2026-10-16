@@ -344,6 +344,26 @@ func TestHeadAlwaysFirst(t *testing.T) {
 	}
 }
 
+// The spread-mode chain shape: the head and a same-priority profile share
+// RankActive, so consecutive requests must start on different members — the
+// lead alternates instead of always being the head.
+func TestSpreadEqualRankAlternatesLead(t *testing.T) {
+	a, b := okProv("a", "a"), okProv("b", "b")
+	p := New([]*Member{
+		member(1, "a", RankActive, a),
+		member(2, "b", RankActive, b),
+	}, NewRegistry(nil, nil))
+
+	first := map[string]int{}
+	for range 4 {
+		txt, _ := drain(p.Stream(context.Background(), llm.CompletionRequest{}))
+		first[txt]++
+	}
+	if first["a"] != 2 || first["b"] != 2 {
+		t.Fatalf("equal-rank spread members did not alternate the lead: %v", first)
+	}
+}
+
 // A single-member chain must behave exactly like the bare provider.
 func TestSingleMemberPassthrough(t *testing.T) {
 	a := okProv("a", "solo")

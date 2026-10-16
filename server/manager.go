@@ -269,6 +269,10 @@ const (
 	// binding is exclusive and failures propagate; enabling this allows bound-profile failures to enter the failover chain.
 	settingLLMPoolOn           = "llm_pool_enabled"
 	settingLLMPoolBindFallback = "llm_pool_bind_fallback"
+	// settingLLMPoolSpread matters only with failover enabled. Off by default: the
+	// active profile always leads. On, every pool profile sharing the head's priority
+	// gets the head's rank, so the pool's equal-rank rotation alternates the lead.
+	settingLLMPoolSpread = "llm_pool_spread"
 	// Task concurrency switch and limit. Disabled by default; enabling uses a default limit of 5.
 	settingConcurrencyOn    = "task_concurrency_enabled"
 	settingConcurrencyLimit = "task_concurrency_limit"
@@ -566,6 +570,22 @@ func (m *Manager) LLMPoolBindFallback() bool {
 // rebuild agents (applyLLM) afterwards.
 func (m *Manager) SetLLMPoolBindFallback(on bool) error {
 	return m.pg.SetBool(settingLLMPoolBindFallback, on)
+}
+
+// LLMPoolSpread reports whether the pool spreads the lead across profiles that
+// share the head's priority (off by default: the head always leads). Only
+// meaningful while LLMPoolEnabled.
+func (m *Manager) LLMPoolSpread() bool {
+	if m.pg == nil {
+		return false
+	}
+	return m.pg.GetBool(settingLLMPoolSpread, false)
+}
+
+// SetLLMPoolSpread persists the spread toggle. Callers rebuild agents
+// (applyLLM) afterwards.
+func (m *Manager) SetLLMPoolSpread(on bool) error {
+	return m.pg.SetBool(settingLLMPoolSpread, on)
 }
 
 // WebSearch returns the current web-search config: whether it is enabled, the

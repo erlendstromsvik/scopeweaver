@@ -3396,6 +3396,7 @@ func (s *Server) settingsPayload() map[string]any {
 		// bind_fallback matters only with failover enabled and is also off by default.
 		"llm_pool_enabled":       s.m.LLMPoolEnabled(),
 		"llm_pool_bind_fallback": s.m.LLMPoolBindFallback(),
+		"llm_pool_spread":        s.m.LLMPoolSpread(),
 		// Constraint injection defaults on for all roles, adding task allow/deny rules to their system prompts.
 		"constraints_inject_planner": s.constraintInjectPlanner(),
 		"constraints_inject_worker":  s.constraintInjectWorker(),
@@ -3475,6 +3476,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// use the changed -> applyLLM path below.
 		LLMPoolEnabled      *bool `json:"llm_pool_enabled"`
 		LLMPoolBindFallback *bool `json:"llm_pool_bind_fallback"`
+		LLMPoolSpread       *bool `json:"llm_pool_spread"`
 		// Constraint-injection flags default on and are read each planner/worker round without rebuilding agents.
 		ConstraintsInjectPlanner *bool `json:"constraints_inject_planner"`
 		ConstraintsInjectWorker  *bool `json:"constraints_inject_worker"`
@@ -3614,6 +3616,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		changed = true
 	}
+	if req.LLMPoolSpread != nil {
+		if err := s.m.SetLLMPoolSpread(*req.LLMPoolSpread); err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		changed = true
+	}
 	if req.LLMMaxConcurrent != nil {
 		if err := s.m.SetLLMMaxConcurrent(*req.LLMMaxConcurrent); err != nil {
 			writeError(w, 400, err)
@@ -3624,7 +3633,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.invalidateProfileAgents()
 		changed = true
 	}
-	if req.LLMPoolEnabled != nil || req.LLMPoolBindFallback != nil {
+	if req.LLMPoolEnabled != nil || req.LLMPoolBindFallback != nil || req.LLMPoolSpread != nil {
 		// Pinned tasks' planner/worker and per-profile chat agents hold providers
 		// built under the OLD switch state — drop them so they pick up the new one.
 		s.invalidateProfileAgents()

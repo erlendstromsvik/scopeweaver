@@ -70,6 +70,21 @@ func (s *Server) poolMember(p *db.LLMProfile, rank int) *llmpool.Member {
 	}
 }
 
+// chainRank picks the chain rank for a non-head pool profile. Spread off: the
+// globally active profile outranks the rest (RankActive-1) so it stays the first
+// fallback, everyone else keeps their configured priority. Spread on: a profile
+// whose priority equals the head's shares the head's rank (RankActive), so the
+// pool's equal-rank rotation alternates the lead per request.
+func chainRank(p *db.LLMProfile, headPriority int, spread bool) int {
+	if spread && p.Priority == headPriority {
+		return llmpool.RankActive
+	}
+	if p.IsDefault {
+		return llmpool.RankActive - 1
+	}
+	return p.Priority
+}
+
 // poolChain reads the failover chain from the DB. headID/headProv/headCfg describe
 // the member that must lead the chain — the globally active profile on the normal
 // path, or an explicitly bound one when bound-profile fallback is on. The head is
@@ -110,12 +125,10 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 		if p.ID == headID {
 			continue
 		}
-		// The globally active profile outranks the others when it isn't the head
-		// (bound-fallback chains), so it stays the first fallback tried.
-		rank := p.Priority
-		if p.IsDefault {
-			rank = llmpool.RankActive - 1
-		}
+		// Spread lets same-priority profiles share the head's rank; otherwise the
+		// globally active profile outranks the others (bound-fallback chains), so
+		// it stays the first fallback tried.
+		rank := chainRank(p, head.Priority, s.m.LLMPoolSpread())
 		if m := s.poolMember(p, rank); m != nil {
 			members = append(members, m)
 		}
@@ -180,6 +193,7 @@ func (s *Server) llmPoolStatus() map[string]any {
 	out := map[string]any{
 		"enabled":       false,
 		"bind_fallback": false,
+		"spread":        false,
 		"chain":         []LLMPoolMemberStatus{},
 	}
 	if s.m == nil || s.m.pg == nil {
@@ -187,6 +201,7 @@ func (s *Server) llmPoolStatus() map[string]any {
 	}
 	out["enabled"] = s.m.LLMPoolEnabled()
 	out["bind_fallback"] = s.m.LLMPoolBindFallback()
+	out["spread"] = s.m.LLMPoolSpread()
 
 	all, err := s.m.pg.ListProfiles()
 	if err != nil {
