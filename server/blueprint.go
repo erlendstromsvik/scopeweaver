@@ -234,8 +234,11 @@ func (s *Server) ApplyBlueprint(bp *blueprint.Blueprint, plan *provision.Plan) e
 	}
 
 	// 9. Admit the task — mirrors the HTTP create handler: seed root assets, the
-	// optional first intent, background goal decomposition, and admitTask.
-	s.launchTask(task, plan.Task.Description+" "+plan.Task.Goal, plan.Task.SeedFirstIntent)
+	// optional first intent, background goal decomposition, and admitTask. Seed
+	// from the blueprint SCOPE, not the goal prose: parsing the goal text would
+	// pick the first domain-shaped token (e.g. "Next.js" -> next.js), which can
+	// be an out-of-scope third party.
+	s.launchTaskSeeded(task, func() { s.seedScope(task, plan.Scope) }, plan.Task.SeedFirstIntent)
 	log.Printf(locale.Text(locale.ServerDefault(), "[blueprint] provisioned task #%s for company %q on profile %q"),
 		task.ID, plan.CompanyName, bp.Name)
 	return nil

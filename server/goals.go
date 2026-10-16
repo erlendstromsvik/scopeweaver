@@ -27,10 +27,18 @@ type goalSpec struct {
 //
 // The goroutine returns immediately to both callers: fast task creation, background decomposition.
 func (s *Server) launchTask(t *Task, seedText string, seedFirstIntent bool) {
+	s.launchTaskSeeded(t, func() { s.seed(t, seedText) }, seedFirstIntent)
+}
+
+// launchTaskSeeded is the shared launch sequence with a caller-supplied seeding
+// step. The prose paths (HTTP create, spawn_task) seed by parsing a URL out of
+// free text; the blueprint path seeds from its authoritative scope instead, so
+// a framework name in the goal prose (e.g. "Next.js") can never become a target.
+func (s *Server) launchTaskSeeded(t *Task, doSeed func(), seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
-	s.seed(t, seedText)
+	doSeed()
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
 	}

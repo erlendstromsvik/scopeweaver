@@ -115,3 +115,52 @@ func TestApplyBlueprintNilArgs(t *testing.T) {
 		t.Error("ApplyBlueprint(bp, nil): got nil error, want error")
 	}
 }
+
+// TestScopeSeedTargetsUsesScopeNotProse pins the P0 fix: blueprint seeding comes
+// from the scope entries, never from the goal prose. parseTarget on the real
+// karriereveiledning goal would grab "Next.js" -> next.js (asserted here as the
+// hazard), while scopeSeedTargets yields exactly the in-scope hosts and nothing
+// framework-shaped.
+func TestScopeSeedTargetsUsesScopeNotProse(t *testing.T) {
+	// The hazard the fix removes: parsing the goal prose yields an out-of-scope
+	// host because "Next.js" is the first domain-shaped token.
+	goal := "Map and fingerprint the Next.js frontend at karriereveiledning.no and the Drupal backend at cms.karriereveiledning.no"
+	if _, host, _, ok := parseTarget(goal); !ok || host != "next.js" {
+		t.Fatalf("expected parseTarget to grab the framework name next.js (the hazard), got host=%q ok=%v", host, ok)
+	}
+
+	scope := []provision.ScopeSpec{
+		{Kind: "domain", Value: "karriereveiledning.no"},
+		{Kind: "domain", Value: "cms.karriereveiledning.no"},
+		{Kind: "cidr", Value: "10.0.0.0/8"},  // skipped: a matcher, not a target
+		{Kind: "keyword", Value: "karriere"}, // skipped
+	}
+	got := scopeSeedTargets(scope)
+	want := []scopeSeedTarget{
+		{scheme: "https", host: "karriereveiledning.no", port: 443},
+		{scheme: "https", host: "cms.karriereveiledning.no", port: 443},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("scopeSeedTargets = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("target[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+		if got[i].host == "next.js" {
+			t.Errorf("seed target must never be the framework name next.js")
+		}
+	}
+}
+
+// TestScopeSeedTargetsIP maps an ip scope entry to a target and skips icp.
+func TestScopeSeedTargetsIP(t *testing.T) {
+	got := scopeSeedTargets([]provision.ScopeSpec{
+		{Kind: "ip", Value: "203.0.113.4"},
+		{Kind: "icp", Value: "something"},
+		{Kind: "domain", Value: "  "}, // blank -> skipped
+	})
+	if len(got) != 1 || got[0].host != "203.0.113.4" || got[0].scheme != "https" {
+		t.Fatalf("scopeSeedTargets(ip) = %+v, want one https 203.0.113.4 target", got)
+	}
+}

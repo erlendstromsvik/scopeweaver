@@ -26,6 +26,7 @@ import (
 	"github.com/Autumn-27/artex/llmpool"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/artex/locale"
+	"github.com/Autumn-27/artex/provision"
 	"github.com/Autumn-27/artex/report"
 	"github.com/Autumn-27/artex/traffic"
 	"github.com/Autumn-27/norma/llm"
@@ -1749,6 +1750,57 @@ func (s *Server) seed(t *Task, text string) {
 		log.Printf(locale.Text(locale.ServerDefault(), "[seed] task %s: no target host/IP could be parsed from %q; no site created (configure scope manually)"), t.ID, text)
 		return
 	}
+	s.seedTarget(t, scheme, host, port)
+}
+
+// scopeSeedTarget is one root asset to seed, derived from a blueprint scope
+// entry (not from free text).
+type scopeSeedTarget struct {
+	scheme string
+	host   string
+	port   int
+}
+
+// scopeSeedTargets maps blueprint scope entries to the root targets to seed.
+// Only `domain` and `ip` entries name a single host; `cidr`, `icp` and
+// `keyword` are scope matchers, not individual targets, so they are skipped.
+// This is pure (no DB, no prose parsing) so the blueprint seeding is testable
+// and can never pick up a framework name from the goal text.
+func scopeSeedTargets(scope []provision.ScopeSpec) []scopeSeedTarget {
+	var out []scopeSeedTarget
+	for _, sc := range scope {
+		v := strings.ToLower(strings.TrimSpace(sc.Value))
+		if v == "" {
+			continue
+		}
+		switch sc.Kind {
+		case "domain":
+			out = append(out, scopeSeedTarget{scheme: "https", host: v, port: 443})
+		case "ip":
+			out = append(out, scopeSeedTarget{scheme: "https", host: v, port: 443})
+		}
+	}
+	return out
+}
+
+// seedScope seeds root assets from a blueprint's scope entries. Unlike seed(),
+// which parses a URL out of free text, this uses the authoritative scope, so a
+// goal that mentions a framework ("Next.js frontend at …") can never seed an
+// out-of-scope target.
+func (s *Server) seedScope(t *Task, scope []provision.ScopeSpec) {
+	targets := scopeSeedTargets(scope)
+	if len(targets) == 0 {
+		log.Printf(locale.Text(locale.ServerDefault(), "[seed] task %s: no target host/IP could be parsed from %q; no site created (configure scope manually)"), t.ID, "blueprint scope")
+		return
+	}
+	for _, tg := range targets {
+		s.seedTarget(t, tg.scheme, tg.host, tg.port)
+	}
+}
+
+// seedTarget creates one root asset for (scheme, host, port) and anchors it to
+// the task. Shared by seed() (prose paths) and seedScope() (blueprint path).
+func (s *Server) seedTarget(t *Task, scheme, host string, port int) {
 	// P0-1 guard: never treat the configured LLM gateway as a target.
 	if gw := s.llmHost(); gw != "" && host == gw {
 		log.Printf(locale.Text(locale.ServerDefault(), "[seed] task %s: target %q is an LLM gateway and cannot be used as a testing target"), t.ID, host)
