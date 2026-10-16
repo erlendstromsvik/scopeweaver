@@ -21,6 +21,11 @@
 #                        instance's secrets dir as llm_api_key (default
 #                        ${XDG_CONFIG_HOME:-~/.config}/sw/llm_api_key, used
 #                        when it exists)
+#   SW_LLM_API_KEY_FILE_<NAME>  per-extra-LLM key file (D.7b), e.g.
+#                        SW_LLM_API_KEY_FILE_SPARK for the extra named
+#                        "spark" read from
+#                        /run/secrets/llm_api_key_spark. Falls back to
+#                        ${XDG_CONFIG_HOME:-~/.config}/sw/llm_api_key_<name>.
 #
 # --dry-run prints every docker/curl/go command instead of running it, but
 # still creates the instance directory so the generated files can be checked.
@@ -37,7 +42,10 @@ COMPOSE_FILE="$REPO_ROOT/deploy/instance/compose.yml"
 SW_HOME="${SW_HOME:-$HOME/.scopeweaver/instances}"
 SW_IMAGE="${SW_IMAGE:-scopeweaver:local}"
 DEFAULT_DELIVERABLES="$HOME/scopeweaver-deliverables"
-DEFAULT_LLM_API_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/sw/llm_api_key"
+DEFAULT_LLM_API_KEY_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/sw"
+DEFAULT_LLM_API_KEY_FILE="$DEFAULT_LLM_API_KEY_DIR/llm_api_key"
+# EXTRA_KEY_FILES collects "name=hostfile" pairs for extra-LLM keys (D.7b).
+EXTRA_KEY_FILES=()
 ADMIN_USER="ARTEX"
 
 # run <cmd...> — echo, then execute unless --dry-run was given.
@@ -131,6 +139,29 @@ cmd_launch() {
 		die "blueprint $bp reads /run/secrets/llm_api_key but no key file was found: put the key in $DEFAULT_LLM_API_KEY_FILE or set SW_LLM_API_KEY_FILE"
 	fi
 
+	# Extra LLMs (D.7b): every /run/secrets/llm_api_key_<name> the blueprint
+	# reads needs a host key file the launcher can copy. The host file is
+	# $SW_LLM_API_KEY_FILE_<NAME> (name upper-cased, '-' -> '_') when set —
+	# it must exist — else the per-user default
+	# ${XDG_CONFIG_HOME:-~/.config}/sw/llm_api_key_<name>. An extra that
+	# references the MAIN /run/secrets/llm_api_key needs nothing new: the
+	# check above already covers it. Refuse before creating any instance
+	# state when a key is missing, like the main-key check.
+	local extra_names name envvar extra_key_file
+	extra_names="$(grep -o '/run/secrets/llm_api_key_[A-Za-z0-9_-]\+' "$bp" 2>/dev/null | sed 's|/run/secrets/llm_api_key_||' | sort -u || true)"
+	for name in $extra_names; do
+		envvar="SW_LLM_API_KEY_FILE_$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
+		extra_key_file=""
+		if [ -n "${!envvar:-}" ]; then
+			[ -f "${!envvar}" ] || die "$envvar not found: ${!envvar}"
+			extra_key_file="${!envvar}"
+		elif [ -f "${DEFAULT_LLM_API_KEY_DIR}/llm_api_key_${name}" ]; then
+			extra_key_file="${DEFAULT_LLM_API_KEY_DIR}/llm_api_key_${name}"
+		fi
+		[ -n "$extra_key_file" ] || die "blueprint $bp reads /run/secrets/llm_api_key_${name} but no key file was found: put the key in ${DEFAULT_LLM_API_KEY_DIR}/llm_api_key_${name} or set $envvar"
+		EXTRA_KEY_FILES+=("$name=$extra_key_file")
+	done
+
 	local id rand
 	rand="$(rand_hex 2)"
 	id="sw-$(date -u +%Y%m%d-%H%M%S)-${rand}"
@@ -149,6 +180,15 @@ cmd_launch() {
 		(umask 077; cp "$llm_key_file" "$dir/secrets/llm_api_key")
 		chmod 600 "$dir/secrets/llm_api_key"
 	fi
+	# Extra LLM keys (D.7b): copy each resolved host file into the instance
+	# secrets dir under its /run/secrets name, mode 600.
+	local pair extra_name extra_src
+	for pair in ${EXTRA_KEY_FILES[@]+"${EXTRA_KEY_FILES[@]}"}; do
+		extra_name="${pair%%=*}"
+		extra_src="${pair#*=}"
+		(umask 077; cp "$extra_src" "$dir/secrets/llm_api_key_${extra_name}")
+		chmod 600 "$dir/secrets/llm_api_key_${extra_name}"
+	done
 
 	# The DSN lives in a read-only mounted config file, not in the
 	# container environment (D6).
@@ -177,6 +217,10 @@ cmd_launch() {
 	else
 		printf 'secrets: %s/secrets (admin_password, pg_password; mode 600)\n' "$dir"
 	fi
+	for pair in ${EXTRA_KEY_FILES[@]+"${EXTRA_KEY_FILES[@]}"}; do
+		printf 'secrets: + llm_api_key_%s from %s (mode 600)\n' "${pair%%=*}" "${pair#*=}"
+	done
+
 	printf 'deliverables: %s/%s\n' "$deliverables" "$id"
 	printf 'login:   username %s, password in %s/secrets/admin_password\n' "$ADMIN_USER" "$dir"
 }

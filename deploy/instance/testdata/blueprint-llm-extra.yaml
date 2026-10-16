@@ -1,0 +1,41 @@
+# D.7b test fixture — a blueprint with one extra LLM named `spark` whose key
+# is read from /run/secrets/llm_api_key_spark, so launch must copy a
+# per-name key file into the instance secrets dir.
+version: 1
+name: fixture-com
+authorization:
+  authorized_by: "Test Controller"
+  window:
+    start: 2026-10-20
+    end: 2026-10-24
+  reference: "ENG-TEST"
+company:
+  name: Fixture Corp
+scope:
+  - { kind: domain, value: example.com }
+constraints:
+  - kind: allow
+    text: "Only example.com."
+task:
+  goal: "Mapping only."
+  timeout_seconds: 3600
+runtime:
+  workers: 1
+  llm_max_concurrent: 1
+  llm_pool: spread
+llm:
+  provider: openai-compatible
+  model: test-model
+  base_url: http://host.docker.internal:8090/v1
+  api_key: ${file:/run/secrets/llm_api_key}
+llm_extra:
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://host.docker.internal:8091/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+    reasoning_effort: xhigh
+    max_concurrent: 2
+admin:
+  username: ARTEX
+  password: ${file:/run/secrets/admin_password}

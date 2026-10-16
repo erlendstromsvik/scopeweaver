@@ -231,6 +231,138 @@ func TestLaunchRejectsMissingLLMKey(t *testing.T) {
 	}
 }
 
+// TestLaunchCopiesExtraLLMKey: a blueprint with an extra LLM reading
+// /run/secrets/llm_api_key_spark gets the per-name key copied from
+// $XDG_CONFIG_HOME/sw/llm_api_key_spark into the instance secrets (600),
+// alongside the main key.
+func TestLaunchCopiesExtraLLMKey(t *testing.T) {
+	root := repoRoot(t)
+	home := t.TempDir()
+	cfgHome := t.TempDir()
+	mainKey := filepath.Join(cfgHome, "sw", "llm_api_key")
+	sparkKey := filepath.Join(cfgHome, "sw", "llm_api_key_spark")
+	if err := os.MkdirAll(filepath.Dir(mainKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainKey, []byte("main-key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sparkKey, []byte("spark-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bp := filepath.Join(root, "deploy", "instance", "testdata", "blueprint-llm-extra.yaml")
+
+	out, err := runScript(t, map[string]string{"SW_HOME": home, "XDG_CONFIG_HOME": cfgHome},
+		"--dry-run", "launch", "BP="+bp, "DELIVERABLES=/tmp/sw-test-deliverables")
+	if err != nil {
+		t.Fatalf("dry-run launch failed: %v\noutput:\n%s", err, out)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected 1 instance dir, got %v (err %v)", entries, err)
+	}
+	secrets := filepath.Join(home, entries[0].Name(), "secrets")
+
+	got := string(mustRead(t, filepath.Join(secrets, "llm_api_key_spark")))
+	if got != "spark-key\n" {
+		t.Errorf("llm_api_key_spark = %q, want the per-name key file's contents", got)
+	}
+	st, err := os.Stat(filepath.Join(secrets, "llm_api_key_spark"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm != 0o600 {
+		t.Errorf("llm_api_key_spark mode %o, want 600", perm)
+	}
+	// The main key still lands too.
+	if got := string(mustRead(t, filepath.Join(secrets, "llm_api_key"))); got != "main-key\n" {
+		t.Errorf("llm_api_key = %q, want the main key file's contents", got)
+	}
+	if !strings.Contains(out, sparkKey) {
+		t.Errorf("output does not name the extra key file used\noutput:\n%s", out)
+	}
+}
+
+// TestLaunchRejectsMissingExtraLLMKey: the extra's key file missing is
+// refused before any instance state is created.
+func TestLaunchRejectsMissingExtraLLMKey(t *testing.T) {
+	root := repoRoot(t)
+	home := t.TempDir()
+	cfgHome := t.TempDir()
+	mainKey := filepath.Join(cfgHome, "sw", "llm_api_key")
+	if err := os.MkdirAll(filepath.Dir(mainKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainKey, []byte("main-key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No llm_api_key_spark anywhere.
+	bp := filepath.Join(root, "deploy", "instance", "testdata", "blueprint-llm-extra.yaml")
+
+	out, err := runScript(t, map[string]string{"SW_HOME": home, "XDG_CONFIG_HOME": cfgHome},
+		"--dry-run", "launch", "BP="+bp)
+	if err == nil {
+		t.Fatalf("expected non-zero exit with no extra key file; output:\n%s", out)
+	}
+	if !strings.Contains(out, "llm_api_key_spark") || !strings.Contains(out, "no key file was found") {
+		t.Errorf("error does not explain the missing extra key file\noutput:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("expected no instance dirs, got %v", entries)
+	}
+}
+
+// TestLaunchExtraLLMKeyEnvOverride: SW_LLM_API_KEY_FILE_SPARK points the
+// launcher at a custom host file for the extra named "spark"; when it is
+// set but missing, launch refuses.
+func TestLaunchExtraLLMKeyEnvOverride(t *testing.T) {
+	root := repoRoot(t)
+	home := t.TempDir()
+	custom := filepath.Join(t.TempDir(), "spark-custom.key")
+	if err := os.WriteFile(custom, []byte("custom-spark-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bp := filepath.Join(root, "deploy", "instance", "testdata", "blueprint-llm-extra.yaml")
+	cfgHome := t.TempDir()
+	mainKey := filepath.Join(cfgHome, "sw", "llm_api_key")
+	if err := os.MkdirAll(filepath.Dir(mainKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainKey, []byte("main-key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runScript(t, map[string]string{
+		"SW_HOME": home, "XDG_CONFIG_HOME": cfgHome, "SW_LLM_API_KEY_FILE_SPARK": custom,
+	}, "--dry-run", "launch", "BP="+bp, "DELIVERABLES=/tmp/sw-test-deliverables")
+	if err != nil {
+		t.Fatalf("dry-run launch failed: %v\noutput:\n%s", err, out)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected 1 instance dir, got %v (err %v)", entries, err)
+	}
+	got := string(mustRead(t, filepath.Join(home, entries[0].Name(), "secrets", "llm_api_key_spark")))
+	if got != "custom-spark-key\n" {
+		t.Errorf("llm_api_key_spark = %q, want the env-named file's contents", got)
+	}
+
+	// Env set but file missing -> refuse, no instance dir.
+	home2 := t.TempDir()
+	out, err = runScript(t, map[string]string{
+		"SW_HOME": home2, "XDG_CONFIG_HOME": cfgHome, "SW_LLM_API_KEY_FILE_SPARK": filepath.Join(t.TempDir(), "gone.key"),
+	}, "--dry-run", "launch", "BP="+bp)
+	if err == nil {
+		t.Fatalf("expected non-zero exit for missing env-named key file; output:\n%s", out)
+	}
+	if !strings.Contains(out, "SW_LLM_API_KEY_FILE_SPARK not found") {
+		t.Errorf("error does not name the env var\noutput:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(home2); len(entries) != 0 {
+		t.Errorf("expected no instance dirs, got %v", entries)
+	}
+}
+
 // TestBashSyntax: `bash -n` on the launcher passes.
 func TestBashSyntax(t *testing.T) {
 	cmd := exec.Command("bash", "-n", scriptPath(t))
