@@ -259,7 +259,9 @@ cmd_report() {
 	local dir
 	dir="$(instance_dir "$id")"
 	[ -f "$dir/secrets/admin_password" ] || die "no instance state at $dir"
-	local bundle
+	local url token bundle
+	url="$(instance_url "$id")"
+	token="$(login "$url" "$(cat "$dir/secrets/admin_password")")"
 	if [ "$DRY_RUN" -eq 1 ]; then
 		run curl -sf -X POST -H "Authorization: Bearer $token" "$url/api/instance/deliverable"
 		printf '[dry-run] would print the bundle dir name and host path\n' >&2
