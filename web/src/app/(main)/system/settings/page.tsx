@@ -711,7 +711,7 @@ export default function SystemSettingsPage() {
               id="local-llm-cidrs"
               rows={3}
               className="font-mono text-sm"
-              placeholder="100.64.0.0/10"
+              placeholder="192.168.1.20/32"
               value={localCidrs}
               disabled={!loaded || savingLocalPolicy}
               onChange={(e) => setLocalCidrs(e.target.value)}

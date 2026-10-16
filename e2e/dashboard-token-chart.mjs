@@ -8,6 +8,9 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, request } from "playwright";
+import { en as aEn, ko as aKo } from "../web/src/i18n/messages/app.ts";
+import { en as iEn, ko as iKo } from "../web/src/i18n/messages/interface.ts";
+import { en as sEn, ko as sKo } from "../web/src/i18n/messages/settings.ts";
 
 assert.ok(process.env.ARTEX_PG_DSN, "ARTEX_PG_DSN is required; run smoke first against a fresh database");
 const dsn = new URL(process.env.ARTEX_PG_DSN);
@@ -20,8 +23,8 @@ const out = path.resolve(process.env.E2E_OUT || "e2e-results", "dashboard-token-
 fs.mkdirSync(out, { recursive: true });
 const prefix = `pr16-dashboard-${randomUUID().replaceAll("-", "")}`;
 const texts = {
-  en: { old: "Legacy", new: "New", all: "All", miss: "Input (cache miss)", output: "Output", cache: "Cache read" },
-  ko: { old: "기존", new: "신규", all: "전체", miss: "입력(캐시 미적중)", output: "출력", cache: "캐시 읽기" },
+  en: { old: "Legacy", new: "New", all: "All", miss: "Input (cache miss)", output: "Output", cache: "Cache read", reasoning: aEn.reasoningInOutput, judgeTab: iEn.m1240, overviewTab: iEn.m0147, judgeOutput: sEn.judgeUsageOutput },
+  ko: { old: "기존", new: "신규", all: "전체", miss: "입력(캐시 미적중)", output: "출력", cache: "캐시 읽기", reasoning: aKo.reasoningInOutput, judgeTab: iKo.m1240, overviewTab: iKo.m0147, judgeOutput: sKo.judgeUsageOutput },
 };
 function sql(query) {
   fs.appendFileSync(`${out}/sql.txt`, `$ psql <disposable-dsn> -v ON_ERROR_STOP=1 -tAc ${query}\n`);
@@ -31,12 +34,13 @@ function sql(query) {
 }
 const today = new Date();
 function day(offset) { const d = new Date(today); d.setUTCDate(d.getUTCDate() + offset); return d.toISOString().slice(0, 10); }
+// reasoning is a subset of output (llm_usage.reasoning_tokens); it must never be added to output again.
 const fixtures = [
-  { name: "author-example", profile: "a", date: day(0), input: 332967061, cache: 325608898, output: 1033245 },
-  { name: "same-day-b1", profile: "b", date: day(0), input: 10000000, cache: 2000000, output: 3000000 },
-  { name: "same-day-b2", profile: "b", date: day(0), input: 20000000, cache: 6000000, output: 2000000 },
-  { name: "cache-zero", profile: "a", date: day(-1), input: 9000000, cache: 0, output: 1000000 },
-  { name: "all-cached", profile: "a", date: day(-2), input: 7000000, cache: 7000000, output: 1000000 },
+  { name: "author-example", profile: "a", date: day(0), input: 332967061, cache: 325608898, output: 1033245, reasoning: 400000 },
+  { name: "same-day-b1", profile: "b", date: day(0), input: 10000000, cache: 2000000, output: 3000000, reasoning: 1000000 },
+  { name: "same-day-b2", profile: "b", date: day(0), input: 20000000, cache: 6000000, output: 2000000, reasoning: 0 },
+  { name: "cache-zero", profile: "a", date: day(-1), input: 9000000, cache: 0, output: 1000000, reasoning: 250000 },
+  { name: "all-cached", profile: "a", date: day(-2), input: 7000000, cache: 7000000, output: 1000000, reasoning: 0 },
 ];
 const profiles = {};
 const ownedConversations = [];
@@ -119,8 +123,8 @@ function buckets(rows) {
   for (const r of rows) {
     if (r.date < day(-30)) continue;
     const key = r.date.slice(5);
-    const b = result.get(key) || { inputCacheMiss: 0, output: 0, cacheRead: 0 };
-    b.inputCacheMiss += r.input - r.cache; b.output += r.output; b.cacheRead += r.cache;
+    const b = result.get(key) || { inputCacheMiss: 0, output: 0, cacheRead: 0, reasoning: 0 };
+    b.inputCacheMiss += r.input - r.cache; b.output += r.output; b.cacheRead += r.cache; b.reasoning += r.reasoning;
     result.set(key, b);
   }
   return [...result].sort(([a], [b]) => a.localeCompare(b)).map(([date, b]) => ({ date, ...b }));
@@ -134,15 +138,17 @@ try {
     const timestamp = `${f.date}T12:00:00Z`;
     const conv = Number(sql(`INSERT INTO conversations(agent_key,title,llm_profile_id,created_at) VALUES ('qa-only','${prefix}-${f.name}',${profiles[f.profile]},'${timestamp}') RETURNING id`).split("\n")[0]); ownedConversations.push(conv);
     sql(`INSERT INTO conversation_activities(conversation_id,kind,input_tokens,output_tokens,cache_read_tokens,created_at) VALUES (${conv},'result',${f.input},${f.output},${f.cache},'${timestamp}')`);
-    ownedUsage.push(Number(sql(`INSERT INTO llm_usage(ts,worker,profile_name,input_tokens,output_tokens,cache_read,status) VALUES ('${timestamp}','qa-only','${prefix}-${f.profile}',${f.input},${f.output},${f.cache},'ok') RETURNING id`)));
+    ownedUsage.push(Number(sql(`INSERT INTO llm_usage(ts,worker,profile_name,input_tokens,output_tokens,cache_read,reasoning_tokens,status) VALUES ('${timestamp}','qa-only','${prefix}-${f.profile}',${f.input},${f.output},${f.cache},${f.reasoning},'ok') RETURNING id`)));
   }
   // The task registry is loaded only at startup; use our own server, not the caller's.
   const taskDate = `${day(-3)}T12:00:00Z`;
   const taskIDs = sql(`WITH e AS (INSERT INTO explorations(description,goal,status) VALUES ('${prefix}-task','QA only','achieved') RETURNING id), t AS (INSERT INTO tasks(name,description,goal,exploration_id,llm_profile_id,status,created_at,completed_at) SELECT '${prefix}-task','QA only','QA only',id,${profiles.a},'done','${taskDate}','${taskDate}' FROM e RETURNING id,exploration_id) SELECT id,exploration_id FROM t`).split("|").map(Number);
   ownedTask = { id: taskIDs[0], exploration: taskIDs[1] };
   sql(`INSERT INTO activity(exploration_id,kind,input_tokens,output_tokens,cache_read_tokens,created_at) VALUES (${ownedTask.exploration},'result',12000000,2000000,8000000,'${taskDate}')`);
-  ownedUsage.push(Number(sql(`INSERT INTO llm_usage(ts,task_id,exploration_id,worker,profile_name,input_tokens,output_tokens,cache_read,status) VALUES ('${taskDate}','${ownedTask.id}',${ownedTask.exploration},'qa-only','${prefix}-a',12000000,2000000,8000000,'ok') RETURNING id`)));
-  assert.equal(sql(`SELECT count(*) FROM llm_usage WHERE profile_name LIKE '${prefix}-%'`), "6", "seed read-back");
+  ownedUsage.push(Number(sql(`INSERT INTO llm_usage(ts,task_id,exploration_id,worker,model,profile_name,input_tokens,output_tokens,cache_read,reasoning_tokens,status) VALUES ('${taskDate}','${ownedTask.id}',${ownedTask.exploration},'qa-only','${prefix}-model','${prefix}-a',12000000,2000000,8000000,500000,'ok') RETURNING id`)));
+  // A fallback-approval (judge) call with reasoning feeds the judge usage card; its profile matches no fixture profile.
+  ownedUsage.push(Number(sql(`INSERT INTO llm_usage(ts,worker,profile_name,input_tokens,output_tokens,cache_read,reasoning_tokens,status) VALUES ('${day(-4)}T12:00:00Z','judge','${prefix}-judge',3000000,600000,0,200000,'ok') RETURNING id`)));
+  assert.equal(sql(`SELECT count(*) FROM llm_usage WHERE profile_name LIKE '${prefix}-%'`), "7", "seed read-back");
   await startServer();
   const login = await api.post(`${base}/api/auth/login`, { data: { username: "ARTEX", password: "e2e-pass-1234" } });
   assert.equal(login.status(), 200, "run smoke first to initialize password");
@@ -161,9 +167,17 @@ try {
     ...tasksResponse.tasks.map(t => ({ date: t.created_at.slice(0, 10), profile: t.llm_profile_id, input: t.tokens.input_tokens, output: t.tokens.output_tokens, cache: t.tokens.cache_read_tokens })),
     ...conversations.map(c => ({ date: c.created_at.slice(0, 10), profile: c.llm_profile_id, input: c.input_tokens, output: c.output_tokens, cache: c.cache_read_tokens })),
   ];
-  const modern = usage.daily.map(d => ({ date: d.date, profile: d.profile_name, input: d.input_tokens, output: d.output_tokens, cache: d.cache_read_tokens }));
-  assert.deepEqual(usage.daily.find(d => d.profile_name === `${prefix}-a` && d.date === day(0)), { profile_name: `${prefix}-a`, date: day(0), input_tokens: 332967061, output_tokens: 1033245, cache_read_tokens: 325608898 });
+  const legacyRows = legacy.map(r => ({ ...r, reasoning: 0 }));
+  const modern = usage.daily.map(d => ({ date: d.date, profile: d.profile_name, input: d.input_tokens, output: d.output_tokens, cache: d.cache_read_tokens, reasoning: d.reasoning_tokens }));
+  assert.deepEqual(usage.daily.find(d => d.profile_name === `${prefix}-a` && d.date === day(0)), { profile_name: `${prefix}-a`, date: day(0), input_tokens: 332967061, output_tokens: 1033245, cache_read_tokens: 325608898, reasoning_tokens: 400000 });
   assert.equal(usage.daily.find(d => d.profile_name === `${prefix}-b` && d.date === day(0)).input_tokens, 30000000, "same-day row aggregate read-back");
+  assert.equal(usage.daily.find(d => d.profile_name === `${prefix}-b` && d.date === day(0)).reasoning_tokens, 1000000, "same-day reasoning aggregate read-back");
+  assert.deepEqual(usage.by_profile.find(p => p.profile_name === `${prefix}-a`), { profile_name: `${prefix}-a`, calls: 4, tasks: 1, input_tokens: 360967061, output_tokens: 5033245, cache_read_tokens: 340608898, cache_write_tokens: 0, reasoning_tokens: 1150000 }, "profile aggregate keeps reasoning separate from output");
+  const byModel = await get(`llm/records/by-model?task=${ownedTask.id}`, token);
+  assert.deepEqual(byModel.models, [{ model: `${prefix}-model`, calls: 1, input_tokens: 12000000, output_tokens: 2000000, cache_read_tokens: 8000000, cache_write_tokens: 0, reasoning_tokens: 500000 }], "task model aggregate read-back");
+  const judge = await get("intercept/judge/usage?days=30", token);
+  assert.ok(judge.reasoning_tokens >= 200000 && judge.output_tokens >= 600000, `judge usage read-back ${JSON.stringify(judge)}`);
+  fs.writeFileSync(`${out}/api-usage-readback.json`, JSON.stringify({ byModel, judge }, null, 2));
   browser = await chromium.launch();
   for (const locale of ["en", "ko"]) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -177,7 +191,7 @@ try {
       try {
         await panel.getByRole("button", { name: texts[locale][version], exact: true }).click();
         await panel.getByRole("button", { name: profile === "all" ? texts[locale].all : `${prefix}-${profile}`, exact: true }).click();
-        const expected = buckets((version === "old" ? legacy : modern).filter(r => profile === "all" || r.profile === (version === "old" ? profiles[profile] : `${prefix}-${profile}`)));
+        const expected = buckets((version === "old" ? legacyRows : modern).filter(r => profile === "all" || r.profile === (version === "old" ? profiles[profile] : `${prefix}-${profile}`)));
         const chart = panel.locator('[data-slot="chart"]'); await chart.locator("path.recharts-rectangle").first().waitFor();
         // Verify actual SVG geometry against API values; the axis is the chart's rendered scale.
         await page.waitForTimeout(1700);
@@ -192,6 +206,7 @@ try {
         });
         fs.writeFileSync(`${out}/${id}-dom.json`, JSON.stringify({ expected, rendered }, null, 2));
         assert.equal(rendered.groups.length, 3, "three stack series");
+        const fmt = n => n >= 1000000 ? (n / 1000000).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
         const parseToken = text => Number(text.replace(/[kM]/g, "")) * (text.endsWith("M") ? 1000000 : text.endsWith("k") ? 1000 : 1);
         const [y0, y1] = rendered.yTicks;
         const tokensPerPixel = (parseToken(y1.text) - parseToken(y0.text)) / (y0.y - y1.y);
@@ -210,10 +225,15 @@ try {
           if (row.inputCacheMiss > 0) assert.equal(segments[0].fill, "rgb(60, 131, 246)", `${id} resolved blue fill`);
         }
         assert.ok((await panel.textContent()).includes(texts[locale].miss), `${id} cache-miss legend`);
+        if (version === "new") {
+          const reasoning = usage.by_profile.filter(p => profile === "all" || p.profile_name === `${prefix}-${profile}`).reduce((a, p) => a + p.reasoning_tokens, 0);
+          // A hidden tooltip from an earlier hover can stay in the DOM; read only the visible metric.
+          const line = (await panel.getByText(texts[locale].reasoning, { exact: true }).filter({ visible: true }).locator("xpath=..").textContent()).trim();
+          assert.equal(line, `${texts[locale].reasoning}${fmt(reasoning)}`, `${id} reasoning metric`);
+        } else assert.equal(await panel.getByText(texts[locale].reasoning, { exact: true }).filter({ visible: true }).count(), 0, `${id} legacy view shows reasoning`);
         // Real pointer hover exercises the actual visible tooltip on every day.
         await chart.scrollIntoViewIfNeeded();
         const svgBox = await chart.locator("svg.recharts-surface").boundingBox();
-        const fmt = n => n >= 1000000 ? (n / 1000000).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
         const tooltips = [];
         for (const row of [...expected].sort((a, b) => b.cacheRead - a.cacheRead)) {
           const tick = rendered.xTicks.find(t => t.text === row.date);
@@ -222,6 +242,9 @@ try {
           const text = await tooltip.textContent();
           for (const label of [texts[locale].miss, texts[locale].output, texts[locale].cache]) assert.ok(text.includes(label), `${id} ${row.date} actual tooltip label ${label}`);
           for (const value of [row.inputCacheMiss, row.output, row.cacheRead]) assert.ok(text.includes(fmt(value)), `${id} ${row.date} actual tooltip value ${fmt(value)}`);
+          // Reasoning is shown as part of output, never as a fourth stacked series.
+          if (row.reasoning > 0) assert.ok(text.includes(`${texts[locale].reasoning}${fmt(row.reasoning)}`), `${id} ${row.date} tooltip reasoning ${fmt(row.reasoning)} in ${text}`);
+          else assert.ok(!text.includes(texts[locale].reasoning), `${id} ${row.date} tooltip shows zero reasoning`);
           tooltips.push({ date: row.date, text });
         }
         fs.writeFileSync(`${out}/${id}-tooltips.json`, JSON.stringify(tooltips, null, 2));
@@ -229,6 +252,31 @@ try {
         console.log(`PASS ${id}: ${JSON.stringify(expected)}`);
       } catch (e) { failures.push(id); console.log(`FAIL ${id}: ${e.message}`); await page.screenshot({ path: `${out}/${id}-failed.png`, fullPage: true }); }
     }
+    // Task overview model table and the judge usage card show reasoning beside, not inside, output.
+    const scenario = `${locale}-task-judge`;
+    try {
+      await page.goto(`${base}/function/tasks/detail?id=${ownedTask.id}`);
+      await page.getByRole("tab", { name: texts[locale].overviewTab, exact: true }).click();
+      const row = page.locator("tr").filter({ has: page.getByText(`${prefix}-model`, { exact: true }) });
+      await row.waitFor();
+      const headers = (await row.locator("xpath=ancestor::table").locator("th").allTextContents()).map(h => h.trim());
+      const cells = (await row.locator("td").allTextContents()).map(c => c.trim());
+      fs.writeFileSync(`${out}/${scenario}-task.json`, JSON.stringify({ headers, cells }, null, 2));
+      assert.equal(headers[3], texts[locale].output, `${scenario} output header`);
+      assert.equal(headers[4], texts[locale].reasoning, `${scenario} reasoning header`);
+      assert.deepEqual(cells.slice(1, 5), ["1", "12M", "2.0M", "500k"], `${scenario} model row keeps output 2.0M and shows reasoning 500k`);
+      await page.screenshot({ path: `${out}/${scenario}-task.png`, fullPage: true });
+      const judgeNow = await get("intercept/judge/usage?days=30", token);
+      await page.goto(`${base}/system/intercept`);
+      await page.getByRole("tab", { name: texts[locale].judgeTab, exact: true }).click();
+      const compact = n => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(n);
+      const stat = label => page.getByText(label, { exact: true }).locator("xpath=..").textContent();
+      await page.getByText(texts[locale].reasoning, { exact: true }).waitFor();
+      assert.equal((await stat(texts[locale].judgeOutput)).trim(), `${texts[locale].judgeOutput}${compact(judgeNow.output_tokens)}`, `${scenario} judge output`);
+      assert.equal((await stat(texts[locale].reasoning)).trim(), `${texts[locale].reasoning}${compact(judgeNow.reasoning_tokens)}`, `${scenario} judge reasoning`);
+      await page.screenshot({ path: `${out}/${scenario}-judge.png`, fullPage: true });
+      console.log(`PASS ${scenario}`);
+    } catch (e) { failures.push(scenario); console.log(`FAIL ${scenario}: ${e.message}`); await page.screenshot({ path: `${out}/${scenario}-failed.png`, fullPage: true }); }
     await context.close();
   }
   assert.equal(errors.length, 0, `uncaught browser errors: ${errors.join(" | ")}`);
@@ -253,5 +301,5 @@ finally {
   }
 }
 if (bodyError || cleanupErrors.length) throw new AggregateError([...(bodyError ? [bodyError] : []), ...cleanupErrors], "dashboard regression or cleanup failed");
-console.log(failures.length ? `Dashboard E2E failed: ${failures.length} scenario(s)` : "Dashboard E2E passed: 12 scenarios");
+console.log(failures.length ? `Dashboard E2E failed: ${failures.length} scenario(s)` : "Dashboard E2E passed: 14 scenarios");
 process.exitCode = failures.length ? 1 : 0;

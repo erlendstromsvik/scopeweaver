@@ -23,5 +23,5 @@ hooks.deregister();
 
 test("demo approval usage supplies a complete zero-total response and daily array", async () => {
   const usage = await mockHandle("GET", "/intercept/judge/usage?days=30&lang=ko");
-  assert.deepEqual(usage, { calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, daily: [] });
+  assert.deepEqual(usage, { calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, daily: [] });
 });

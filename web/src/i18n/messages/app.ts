@@ -3,6 +3,7 @@
 export const en = {
   metricValue: "{label} {value}",
   tokenSummary: "In {input} (including cache {cache}) · Out {output}",
+  reasoningInOutput: "Reasoning (in output)",
   cycleTheme: "Current theme: {theme}. Click to cycle themes",
   operator: "Operator",
   commandPalette: "Command palette",
@@ -30,6 +31,7 @@ export const en = {
 export const ko: Record<keyof typeof en, string> = {
   metricValue: "{label} {value}",
   tokenSummary: "입력 {input}(캐시 {cache} 포함) · 출력 {output}",
+  reasoningInOutput: "추론(출력에 포함)",
   cycleTheme: "현재 테마: {theme}. 클릭하여 테마 변경",
   operator: "운영자",
   commandPalette: "명령 팔레트",

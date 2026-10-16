@@ -28,13 +28,13 @@ func TestLocalCompactionExactThresholdAndRawHistory(t *testing.T) {
 		c := &localCompactor{window: window, summarize: func(context.Context, []llm.Message) (string, error) { calls++; return "preserved facts", nil }}
 		msgs := localHistory()
 		before := append([]llm.Message(nil), msgs...)
-		out := c.Pre(t.Context(), msgs, window*3/4-1)
+		out := c.Pre(t.Context(), msgs, window*72/100-1)
 		if calls != 0 || !reflect.DeepEqual(out, msgs) {
-			t.Fatalf("window=%d compacted before 75%%", window)
+			t.Fatalf("window=%d compacted before 72%%", window)
 		}
-		out = c.Pre(t.Context(), msgs, window*3/4)
+		out = c.Pre(t.Context(), msgs, window*72/100)
 		if calls != 1 || llm.LastBoundaryIndex(out) < 0 {
-			t.Fatalf("window=%d no compaction at75%% calls=%d", window, calls)
+			t.Fatalf("window=%d no compaction at72%% calls=%d", window, calls)
 		}
 		if !reflect.DeepEqual(msgs, before) {
 			t.Fatal("input transcript mutated")
@@ -96,7 +96,7 @@ func TestLocalOutputCapSpillsFullBytesAndCloudUnchanged(t *testing.T) {
 	for _, tc := range []struct {
 		native      bool
 		window, cap int
-	}{{true, 16384, 16384}, {true, 32768, 16384}, {true, 65536, 0}, {true, 131072, 0}, {false, 32768, 0}, {false, 200000, 0}} {
+	}{{true, 16384, 16384}, {true, 32768, 16384}, {true, 65536, 32768}, {true, 131072, 0}, {false, 32768, 0}, {false, 200000, 0}} {
 		cfg := compactionConfig(tc.window)
 		opts := agentcore.Options{Compaction: cfg, ToolOutputDir: t.TempDir()}
 		applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: tc.native, ContextWindow: tc.window})
@@ -152,7 +152,7 @@ func TestLocalCompactionRetainsPolicyWhenNoaSelected(t *testing.T) {
 	compactor := opts.Compactor
 	warning := ""
 	enableNoa(&opts, func() bool { return true }, t.TempDir(), "local", func(msg string) { warning = msg })
-	if opts.Compactor != compactor || !strings.Contains(warning, "75%") {
+	if opts.Compactor != compactor || !strings.Contains(warning, "72%") {
 		t.Fatal("local policy overridden without warning")
 	}
 }

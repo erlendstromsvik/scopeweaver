@@ -3,14 +3,18 @@ package llmnet
 
 import (
 	"context"
-	"github.com/Autumn-27/artex/locale"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"github.com/Autumn-27/artex/locale"
 )
 
 // IsLocalAddress accepts loopback, RFC1918, and IPv6 unique-local addresses.
@@ -39,8 +43,54 @@ func IsLocalEndpoint(raw string) bool {
 	return true
 }
 
+// strictDestinationAllowed is separate from keyless/auth endpoint classification.
+func strictDestinationAllowed(ip netip.Addr, prefixes []netip.Prefix) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	for _, p := range prefixes {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func strictDestinationError(host string, ip netip.Addr) error {
+	return locale.Errorf("local_llm_only: LLM destination %s (%s) is not loopback or allowlisted", host, ip)
+}
+
+func strictDialer(prefixes []netip.Prefix) *net.Dialer {
+	return &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip, err := netip.ParseAddr(host)
+			if err != nil {
+				return err
+			}
+			if !strictDestinationAllowed(ip, prefixes) {
+				return strictDestinationError(host, ip)
+			}
+			return nil
+		},
+	}
+}
+
+func strictRedirectError() error {
+	return locale.Errorf("local_llm_only: redirects are not allowed")
+}
+
 // NewClient preserves direct-by-default networking; strict mode rejects proxies
-// and checks the actual IP passed to DialContext, including redirects and DNS changes.
+// and redirects, and checks the resolved IP and actual socket destination.
 func NewClient(proxy string, strict bool, allowedCIDRs []string) (*http.Client, error) {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = nil
@@ -72,7 +122,7 @@ func NewClient(proxy string, strict bool, allowedCIDRs []string) (*http.Client, 
 		prefixes = append(prefixes, p)
 	}
 	if strict {
-		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		dialer := strictDialer(prefixes)
 		tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
@@ -85,14 +135,10 @@ func NewClient(proxy string, strict bool, allowedCIDRs []string) (*http.Client, 
 			if len(ips) == 0 {
 				return nil, locale.Errorf("local_llm_only: no addresses for %s", host)
 			}
-			// Reject mixed public/private DNS answers, then dial the exact checked IP.
+			// Reject any untrusted DNS answer, then dial the exact checked IP.
 			for _, ip := range ips {
-				allowed := IsLocalAddress(ip)
-				for _, p := range prefixes {
-					allowed = allowed || p.Contains(ip.Unmap())
-				}
-				if !allowed {
-					return nil, locale.Errorf("local_llm_only: LLM destination %s (%s) is not local or allowlisted", host, ip)
+				if !strictDestinationAllowed(ip, prefixes) {
+					return nil, strictDestinationError(host, ip)
 				}
 			}
 			var last error
@@ -106,7 +152,11 @@ func NewClient(proxy string, strict bool, allowedCIDRs []string) (*http.Client, 
 			return nil, last
 		}
 	}
-	return &http.Client{Transport: tr}, nil
+	client := &http.Client{Transport: tr}
+	if strict {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return strictRedirectError() }
+	}
+	return client, nil
 }
 
 // policyTransport re-evaluates policy before every request, including connection
@@ -125,7 +175,12 @@ func (t *policyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !strict {
 		return t.normal.RoundTrip(req)
 	}
-	key := strings.Join(cidrs, "\x00")
+	// A toggle can occur after CheckRedirect but before this round trip.
+	if req.Response != nil {
+		return nil, strictRedirectError()
+	}
+	// Quote every element so malformed policies cannot alias a valid cached pool.
+	key := fmt.Sprintf("%q", cidrs)
 	t.mu.Lock()
 	tr := t.guarded[key]
 	if tr == nil {
@@ -148,5 +203,17 @@ func NewClientWithPolicy(proxy string, resolve func() (bool, []string)) (*http.C
 	if err != nil {
 		return nil, err
 	}
-	return &http.Client{Transport: &policyTransport{proxy: proxy, resolve: resolve, normal: normal.Transport, guarded: map[string]http.RoundTripper{}}}, nil
+	return &http.Client{
+		Transport: &policyTransport{proxy: proxy, resolve: resolve, normal: normal.Transport, guarded: map[string]http.RoundTripper{}},
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			strict, _ := resolve()
+			if strict {
+				return strictRedirectError()
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}, nil
 }

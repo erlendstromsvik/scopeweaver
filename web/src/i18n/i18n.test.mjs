@@ -52,7 +52,7 @@ function checkCatalog(source, translated, locale) {
 }
 
 test("every shipped catalog is complete and preserves placeholders and rich tags", () => {
-  assert.equal(Object.keys(catalogs.en).length, 3163);
+  assert.equal(Object.keys(catalogs.en).length, 3186);
   assert.deepEqual(catalogLocales.sort(), [...LOCALES].sort());
   assert.deepEqual(Object.keys(catalogs).sort(), [...LOCALES].sort());
   for (const locale of LOCALES) checkCatalog(catalogs.en, catalogs[locale], locale);
@@ -62,6 +62,24 @@ test("every shipped catalog is complete and preserves placeholders and rich tags
   assert.deepEqual(unchangedChinese, ["app.metricValue"]);
   assert.equal(interpolate("Task {id}: {name}", {id:7,name:"사용자 原文 {unchanged}"}), "Task 7: 사용자 原文 {unchanged}");
   assert.equal(interpolate("{missing}", {}), "{missing}");
+});
+
+test("output-limit help states what 0 actually sends on each call path", () => {
+  // 0 is not omitted: agent turns send 32768, direct Anthropic calls 8192, native Ollama its own default.
+  const qualifiers = { en: [/agent/i, /Anthropic/, /Ollama/], ko: [/에이전트/, /Anthropic/, /Ollama/], "zh-Hans": [/代理/, /Anthropic/, /Ollama/] };
+  for (const locale of LOCALES) {
+    const key = "interface.m1411";
+    const text = catalogs[locale][key];
+    assert.match(text, /32,?768/, `${locale}:${key}: agent-turn value`);
+    for (const q of qualifiers[locale]) assert.match(text, q, `${locale}:${key}: ${q}`);
+    assert.match(text, /8,?192/, `${locale}:${key}: direct Anthropic value`);
+    assert.doesNotMatch(text, /server default|provider default|서버 기본값|제공자 기본값|服务端默认值|服务商默认值/, `${locale}:${key}: 0 is not a provider default`);
+    // The GLM template now sets its own output limit; its help must state the values it fills.
+    const glm = catalogs[locale]["providers.modelHelp"];
+    assert.match(glm, /16,?384/, `${locale}: GLM template output limit`);
+    assert.match(glm, /\blow\b/, `${locale}: GLM template effort`);
+    assert.doesNotMatch(glm, /server default|provider default|서버 기본값|제공자 기본값|服务端默认值|服务商默认值/, `${locale}: GLM help`);
+  }
 });
 
 test("integrity checks reject missing, empty, placeholder, rich-tag and untranslated fixtures", () => {

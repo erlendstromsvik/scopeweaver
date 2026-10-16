@@ -232,9 +232,15 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		"rolled_back": boot.RolledBack,
 	}
 
+	if err := s.updatePolicyError(); err != nil {
+		out["local_llm_only"], out["error"] = true, locale.ErrorMessage(responseLanguage(w), err)
+		writeJSON(w, 200, out)
+		return
+	}
+
 	// Top-bar checks use cache; explicit checks pass force=1 to fetch fresh data.
 	force := r.URL.Query().Get("force") != ""
-	client := selfupdate.NewClient(s.m.GlobalProxy())
+	client := s.guardedUpdateClient(selfupdate.NewClient(s.m.GlobalProxy()))
 	rel, err := relCache.get(r.Context(), client, force)
 	if err != nil {
 		out["error"] = locale.ErrorMessage(locale.FromRequest(r), err)
@@ -242,6 +248,11 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.updatePolicyError(); err != nil {
+		out["local_llm_only"], out["error"] = true, locale.ErrorMessage(responseLanguage(w), err)
+		writeJSON(w, 200, out)
+		return
+	}
 	latest := rel.TagName
 	out["latest"] = latest
 	out["notes"] = rel.Body
@@ -275,13 +286,21 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 // Return 202 immediately and work in a goroutine. Full downloads may take minutes;
 // tying them to a request risks reverse-proxy timeouts. Progress uses /api/update/stream.
 func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
+	if err := s.updatePolicyError(); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": false, "local_llm_only": true, "error": locale.ErrorMessage(responseLanguage(w), err)})
+		return
+	}
 	current := BuildVersion
 
 	// Use cache to install exactly the version the user saw and confirmed.
-	client := selfupdate.NewClient(s.m.GlobalProxy())
+	client := s.guardedUpdateClient(selfupdate.NewClient(s.m.GlobalProxy()))
 	rel, err := relCache.get(r.Context(), client, false)
 	if err != nil {
 		writeError(w, 502, err)
+		return
+	}
+	if err := s.updatePolicyError(); err != nil {
+		writeError(w, 403, err)
 		return
 	}
 	cmp, comparable := selfupdate.CompareVersions(current, rel.TagName)

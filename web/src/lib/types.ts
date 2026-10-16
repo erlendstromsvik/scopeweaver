@@ -848,6 +848,9 @@ export interface ProfileUsage {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  // Reasoning/thinking tokens (llm_usage.reasoning_tokens): a subset of output_tokens, never added to it.
+  // Absent from older responses; read as 0.
+  reasoning_tokens?: number;
 }
 
 // One (profile, UTC day) token bucket for the dashboard's daily chart (new source).
@@ -857,6 +860,9 @@ export interface ProfileDayUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
+  // Reasoning/thinking tokens (llm_usage.reasoning_tokens): a subset of output_tokens, never added to it.
+  // Absent from older responses; read as 0.
+  reasoning_tokens?: number;
 }
 
 // Response of GET /api/tokens/usage — the dashboard's "new" (llm_usage) token view.
@@ -874,6 +880,9 @@ export interface ModelTokenStat {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  // Reasoning/thinking tokens (llm_usage.reasoning_tokens): a subset of output_tokens, never added to it.
+  // Absent from older responses; read as 0.
+  reasoning_tokens?: number;
 }
 
 export interface Session {
@@ -966,7 +975,7 @@ export interface Settings {
   llm_max_concurrent?: number;
   // Opt-in zero-egress policy for LLM HTTP only; defaults to false. An environment true cannot be disabled here.
   local_llm_only?: boolean;
-  // Extra CIDRs trusted in addition to loopback/RFC1918/IPv6 ULA while local_llm_only is on.
+  // CIDRs trusted in addition to loopback while local_llm_only is on; LAN/Docker hosts need an entry.
   local_llm_allowed_cidrs?: string[];
   // LLM failover rotation defaults off. Unbound Agents switch to the next profile when the current one fails
   // due to insufficient balance, invalid key, rate limiting, or service errors.
@@ -1073,7 +1082,7 @@ export interface LLMProfile {
   rate_per_second: number;
   rate_per_minute: number;
   context_window_k?: number;
-  // thinking.type: empty omits (default), disabled turns off, enabled turns on.
+  // thinking.type: empty omits (default), disabled turns off, enabled turns on, adaptive lets the model decide.
   thinking_type?: string;
   // Reasoning effort: empty omits (default), or low/medium/high/xhigh/max.
   reasoning_effort?: string;
@@ -1116,6 +1125,14 @@ export interface LLMTestResult {
   capabilities?: string[];
   tools_supported?: boolean;
   tool_call_verified?: boolean;
+  // /api/ps memory estimate for the selected runner; omitted when unknown. Not exact weights or GPU capacity.
+  size_bytes?: number;
+  size_vram_bytes?: number;
+  gpu_offload_percent?: number;
+  // Other models resident on the same Ollama server.
+  other_loaded_models?: string[];
+  // The explicitly configured judge uses a different model or context on this endpoint.
+  judge_model_mismatch?: boolean;
 }
 
 // POST /api/llm/models model_details item (native Ollama only). error means /api/show failed,
@@ -1631,6 +1648,8 @@ export interface UpdateCheck {
   rolled_back?: boolean;
   /* GitHub query failure reason; subsequent fields are absent on failure. */
   error?: string;
+  /* True when local_llm_only blocked the check; error then carries the policy message, not a network failure. */
+  local_llm_only?: boolean;
   latest?: string;
   notes?: string;
   html_url?: string;
@@ -1670,6 +1689,9 @@ export interface JudgeDayUsage {
   calls: number;
   input_tokens: number;
   output_tokens: number;
+  // Reasoning/thinking tokens (llm_usage.reasoning_tokens): a subset of output_tokens, never added to it.
+  // Absent from older responses; read as 0.
+  reasoning_tokens?: number;
 }
 export interface JudgeUsage {
   calls: number;
@@ -1677,5 +1699,8 @@ export interface JudgeUsage {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  // Reasoning/thinking tokens (llm_usage.reasoning_tokens): a subset of output_tokens, never added to it.
+  // Absent from older responses; read as 0.
+  reasoning_tokens?: number;
   daily: JudgeDayUsage[];
 }

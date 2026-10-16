@@ -433,10 +433,12 @@ export function OverviewTab({ taskId }: { taskId: string }) {
       acc.output += m.output_tokens;
       acc.cacheRead += m.cache_read_tokens;
       acc.cacheWrite += m.cache_write_tokens;
+      // Reasoning is a subset of output; shown beside it, never added to it.
+      acc.reasoning += m.reasoning_tokens ?? 0;
       acc.calls += m.calls;
       return acc;
     },
-    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 },
+    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, calls: 0 },
   );
 
   return (
@@ -754,6 +756,10 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                   <span className="font-semibold">{fmtTokens(tokenTotals.output)}</span>
                 </span>
                 <span className="tabular-nums">
+                  <span className="text-muted-foreground">{swt("app.reasoningInOutput")}</span>
+                  <span className="font-semibold">{fmtTokens(tokenTotals.reasoning)}</span>
+                </span>
+                <span className="tabular-nums">
                   <span className="text-muted-foreground">{swt("interface.m0137")}</span>
                   <span className="font-semibold">{fmtTokens(tokenTotals.cacheRead)}</span>
                 </span>
@@ -773,6 +779,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                       <th className="py-1.5 pr-3 text-right font-medium">{swt("interface.m0628")}</th>
                       <th className="py-1.5 pr-3 text-right font-medium">{swt("interface.m0135")}</th>
                       <th className="py-1.5 pr-3 text-right font-medium">{swt("interface.m0136")}</th>
+                      <th className="py-1.5 pr-3 text-right font-medium">{swt("app.reasoningInOutput")}</th>
                       <th className="py-1.5 pr-3 text-right font-medium">{swt("interface.m0137")}</th>
                       <th className="py-1.5 text-right font-medium">{swt("interface.m0629")}</th>
                     </tr>
@@ -786,6 +793,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                         <td className="py-1.5 pr-3 text-right tabular-nums">{m.calls}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.input_tokens)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.output_tokens)}</td>
+                        <td className="text-muted-foreground py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.reasoning_tokens ?? 0)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.cache_read_tokens)}</td>
                         <td className="py-1.5 text-right tabular-nums text-emerald-500">
                           {cacheHitRate(m.cache_read_tokens, m.input_tokens)}

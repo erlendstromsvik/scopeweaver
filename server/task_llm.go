@@ -15,6 +15,7 @@ import (
 
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
@@ -226,6 +227,7 @@ func (r *taskLLMRuntime) streamHooks() taskLLMStreamHooks {
 }
 
 func (r *taskLLMRuntime) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
+	ctx = withNativeRole(ctx, r.agentKey)
 	ctx = llmrec.WithTaskID(ctx, r.taskID)
 	return streamTaskLLM(ctx, r.taskID, req, r.streamHooks())
 }
@@ -236,6 +238,7 @@ func (r *taskLLMRuntime) Stream(ctx context.Context, req llm.CompletionRequest) 
 // duplicated model output or tool execution (the "committed" bookkeeping the
 // streaming path needs is unnecessary here).
 func (r *taskLLMRuntime) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
+	ctx = withNativeRole(ctx, r.agentKey)
 	ctx = llmrec.WithTaskID(ctx, r.taskID)
 	return completeTaskLLM(ctx, r.taskID, req, r.streamHooks())
 }
@@ -244,6 +247,7 @@ func completeTaskLLM(ctx context.Context, taskID string, req llm.CompletionReque
 	for {
 		selection, err := hooks.current()
 		if err != nil {
+			intercept.SetProviderError(ctx, err)
 			return llm.Message{}, "", llm.Usage{}, err
 		}
 		var (
@@ -295,6 +299,7 @@ func streamTaskLLM(ctx context.Context, taskID string, req llm.CompletionRequest
 		for {
 			selection, err := hooks.current()
 			if err != nil {
+				intercept.SetProviderError(ctx, err)
 				yield(llm.StreamEvent{}, err)
 				return
 			}

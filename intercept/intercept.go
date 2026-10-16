@@ -321,6 +321,8 @@ const (
 // JudgeConfig is the resolved LLM-fallback-judge configuration. Prompt is always
 // non-empty (falls back to DefaultJudgePrompt).
 type JudgeConfig struct {
+	preferredOrigin   *ProviderOrigin
+	originError       error
 	Enabled           bool   `json:"enabled"`
 	ProfileID         int64  `json:"profile_id"` // 0 = follow active/default
 	Prompt            string `json:"prompt"`
@@ -334,6 +336,10 @@ type JudgeConfig struct {
 // missing/invalid keys. Read fresh on each fallback judgement — the LLM call that
 // follows dwarfs a few KV reads, and freshness avoids a cache-invalidation path.
 func (i *Interceptor) judgeConfig(resolveProfile ...bool) JudgeConfig {
+	return i.judgeConfigFor(context.Background(), resolveProfile...)
+}
+
+func (i *Interceptor) judgeConfigFor(ctx context.Context, resolveProfile ...bool) JudgeConfig {
 	profileID := int64(i.getSettingInt(settingJudgeProfileID, 0))
 	var profile *db.LLMProfile
 	if profileID == 0 {
@@ -341,11 +347,24 @@ func (i *Interceptor) judgeConfig(resolveProfile ...bool) JudgeConfig {
 	} else {
 		profile, _ = i.db.ProfileByID(profileID)
 	}
+	native := profile != nil && profile.Format == "ollama"
+	var preferred *ProviderOrigin
+	var originError error
+	if profileID == 0 {
+		origin := providerOrigin(ctx)
+		originError = origin.Err
+		if origin.Native {
+			profileID, native = origin.ProfileID, true
+			profile = nil
+			preferred = &origin
+		}
+	}
 	timeoutDefault, failDefault := defaultJudgeTimeoutSecs, defaultJudgeFailAction
-	if profile != nil && profile.Format == "ollama" {
-		timeoutDefault, failDefault = 60, "ask"
+	if native {
+		timeoutDefault, failDefault = 90, "ask"
 	}
 	c := JudgeConfig{
+		preferredOrigin: preferred, originError: originError,
 		Enabled:           i.db.GetBool(settingJudgeEnabled, false),
 		ProfileID:         profileID,
 		TimeoutSeconds:    i.getSettingInt(settingJudgeTimeoutSecs, timeoutDefault),
@@ -441,7 +460,13 @@ func (i *Interceptor) SetJudgeConfig(c JudgeConfig) error {
 // falls back to the configured FailAction. Ask verdicts carry the human-approval
 // timeout so the existing HandleAsk consumes them unchanged.
 func (i *Interceptor) Judge(ctx context.Context, tool string, arguments json.RawMessage) (Decision, bool) {
-	cfg := i.judgeConfig(true) // Resolve active profile and its defaults together before creating the deadline.
+	// Resolve the selection and defaults from one settings/origin snapshot before
+	// starting the deadline. A later settings edit affects the next decision.
+	cfg := i.judgeConfigFor(ctx, true)
+	if cfg.preferredOrigin != nil {
+		ctx = context.WithValue(ctx, reviewOriginKey{}, *cfg.preferredOrigin)
+	}
+
 	i.mu.RLock()
 	rv := i.reviewer
 	i.mu.RUnlock()
@@ -467,7 +492,11 @@ func (i *Interceptor) Judge(ctx context.Context, tool string, arguments json.Raw
 		out = Decision{Action: "ask", ModelFallback: true, Message: locale.Text(locale.FromContext(ctx), "Review context is incomplete; human confirmation is required: ") + locale.ErrorMessage(locale.FromContext(ctx), contextErr)}
 	} else {
 		modelInput, _ = json.Marshal(input)
-		out, err = rv(cctx, cfg.ProfileID, cfg.Prompt, input)
+		if cfg.originError != nil {
+			err = cfg.originError
+		} else {
+			out, err = rv(cctx, cfg.ProfileID, cfg.Prompt, input)
+		}
 	}
 	if err != nil {
 		out = Decision{ProfileID: out.ProfileID, ModelFallback: true, Action: cfg.FailAction, Message: locale.Text(locale.FromContext(ctx), "Model review failed; applying failure policy: ") + locale.ErrorMessage(locale.FromContext(ctx), err)}

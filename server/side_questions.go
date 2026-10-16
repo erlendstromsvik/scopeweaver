@@ -48,7 +48,7 @@ func sideModel(cfg agent.Config, id int64, name string) sidequestion.Model {
 }
 
 func bindSideProvider(p llm.Provider, cfg agent.Config, id int64, name string) llm.Provider {
-	return sidequestion.Bind(p, sideModel(cfg, id, name))
+	return &originProvider{inner: sidequestion.Bind(p, sideModel(cfg, id, name)), cfg: cfg, id: id}
 }
 
 func (s *Server) initSideQuestions() {
@@ -429,6 +429,7 @@ func (s *Server) runSide(ctx context.Context, cancel context.CancelFunc, e sideq
 		delete(s.side.runs, e.ID)
 		s.side.mu.Unlock()
 	}()
+	ctx = withNativeRole(ctx, "sidequestion")
 	ctx = transcript.WithSessionID(ctx, fmt.Sprintf("exp%d-btw-%s", parent.ExplorationID, e.ID))
 	if parent.TaskID > 0 {
 		ctx = llmrec.WithTaskID(ctx, strconv.FormatInt(parent.TaskID, 10))

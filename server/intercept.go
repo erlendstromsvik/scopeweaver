@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
@@ -33,23 +34,35 @@ func (s *Server) chatGuard() *guard.Guard {
 // runs a one-shot JSON classification with an explanation for every verdict.
 func (s *Server) wireInterceptReviewer() {
 	s.m.interceptor.SetReviewer(func(ctx context.Context, profileID int64, prompt string, input intercept.ReviewInput) (intercept.Decision, error) {
-		if profileID == 0 {
-			if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
-				profileID = p.ID
+		var prov llm.Provider
+		var cfg agent.Config
+		if origin, preferred := intercept.ReviewProviderOrigin(ctx); preferred {
+			var ok bool
+			cfg, ok = origin.Data.(agent.Config)
+			if !ok {
+				return intercept.Decision{ProfileID: profileID}, locale.Errorf("Judge model profile %d is unavailable", profileID)
 			}
-		}
-		if profileID == 0 {
-			return intercept.Decision{}, locale.Errorf("No available judge model is configured")
-		}
-		prov, cfg, ok := s.providerForProfile(profileID)
-		if !ok {
-			return intercept.Decision{ProfileID: profileID}, locale.Errorf("Judge model profile %d is unavailable", profileID)
+		} else {
+			if profileID == 0 {
+				if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
+					profileID = p.ID
+				}
+			}
+			if profileID == 0 {
+				return intercept.Decision{}, locale.Errorf("No available judge model is configured")
+			}
+			var ok bool
+			prov, cfg, ok = s.providerForProfile(profileID)
+			if !ok {
+				return intercept.Decision{ProfileID: profileID}, locale.Errorf("Judge model profile %d is unavailable", profileID)
+			}
 		}
 		if cfg.Format == llm.Format("ollama") {
 			// JSON mode is specific to the judge; retain the same endpoint admission
 			// gate as task inference so this separate provider cannot overfill VRAM.
 			cfg = s.applyLLMPolicy(cfg)
 			cfg.JSONOutput = true
+			cfg.JSONSchema = map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"allow", "ask", "deny"}}, "comment": map[string]any{"type": "string", "minLength": 10}}, "required": []string{"decision", "comment"}, "additionalProperties": false}
 			var err error
 			prov, err = cfg.NewProvider()
 			if err != nil {
@@ -61,6 +74,8 @@ func (s *Server) wireInterceptReviewer() {
 			prov = s.profileConcurrencyProvider(prov, cfg)
 		}
 
+		ctx = intercept.WithProviderOrigin(ctx)
+		ctx = withNativeRole(ctx, "judge")
 		ctx = llmrec.WithWorker(ctx, judgeWorkerLane)
 		text, err := reviewCompletion(ctx, prov, prompt, input)
 		if err != nil {

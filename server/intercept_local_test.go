@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/norma/llm"
 )
 
 func TestNativeJudgeDefaultsExplicitPolicyAndFailure(t *testing.T) {
@@ -57,7 +59,7 @@ func TestNativeJudgeDefaultsExplicitPolicyAndFailure(t *testing.T) {
 		id      int64
 		timeout int
 		action  string
-	}{{"cloud", cloudID, 15, "allow"}, {"native", localID, 60, "ask"}} {
+	}{{"cloud", cloudID, 15, "allow"}, {"native", localID, 90, "ask"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			_ = m.pg.SetSetting("llm_judge_profile_id", strconv.FormatInt(tc.id, 10))
 			cfg := i.GetJudgeConfig()
@@ -93,7 +95,7 @@ func TestNativeJudgeDefaultsExplicitPolicyAndFailure(t *testing.T) {
 	}
 	_ = m.pg.SetActiveProfile(localID)
 	_ = m.pg.SetSetting("llm_judge_profile_id", "0")
-	if cfg := i.GetJudgeConfig(); cfg.TimeoutSeconds != 60 || cfg.FailAction != "ask" {
+	if cfg := i.GetJudgeConfig(); cfg.TimeoutSeconds != 90 || cfg.FailAction != "ask" {
 		t.Fatalf("follow active=%+v", cfg)
 	}
 	_ = m.pg.SetSetting("llm_judge_timeout_seconds", "7")
@@ -121,7 +123,7 @@ func TestNativeJudgeUsesJSONModeAndStrictParser(t *testing.T) {
 		case "/api/chat":
 			var req struct {
 				Messages []json.RawMessage `json:"messages"`
-				Format   string            `json:"format"`
+				Format   map[string]any    `json:"format"`
 				Options  map[string]any    `json:"options"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -133,7 +135,7 @@ func TestNativeJudgeUsesJSONModeAndStrictParser(t *testing.T) {
 				_, _ = w.Write([]byte(`{"done":true}`))
 				return
 			}
-			if req.Format != "json" {
+			if req.Format["type"] != "object" || req.Format["additionalProperties"] != false {
 				t.Errorf("judge missing JSON mode: %+v", req)
 			}
 			if req.Options["num_ctx"] != float64(32768) {
@@ -184,5 +186,19 @@ func TestNativeJudgeUsesJSONModeAndStrictParser(t *testing.T) {
 	}
 	if reviews.Load() != 2 {
 		t.Fatalf("review requests=%d", reviews.Load())
+	}
+
+	// Bound/global routing has chain ID zero, but the real reviewer must still use
+	// the concrete native configuration captured from that provider invocation.
+	reviews.Store(0)
+	_ = m.pg.SetSetting("llm_judge_profile_id", "0")
+	originCtx := intercept.WithProviderOrigin(t.Context())
+	cfg := agent.ConfigFrom("ollama", "fixture", fixture.URL, "", "")
+	cfg.ContextWindowK = 32
+	concrete := &originProvider{inner: &fakeProvider{}, cfg: cfg, id: 0}
+	_, _, _, _ = concrete.Complete(originCtx, llm.CompletionRequest{})
+	d, ok = m.interceptor.Judge(originCtx, "Bash", json.RawMessage(`{"command":"cat fixture.txt"}`))
+	if !ok || d.Action != "allow" || d.ProfileID != 0 {
+		t.Fatalf("concrete native origin was lost: %+v", d)
 	}
 }

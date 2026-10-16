@@ -29,7 +29,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { applyLLMProfilePreset, getLLMProfilePreset, isOllamaPreset, selectInstalledOllamaModel, type LLMProfilePresetId } from "@/lib/llm-profile-presets";
+import { applyLLMProfilePreset, getLLMProfilePreset, isCloudEconomyPreset, isOllamaPreset, selectInstalledOllamaModel, type LLMProfilePresetId } from "@/lib/llm-profile-presets";
 import { api } from "@/lib/api";
 import { pullCommand } from "@/lib/ollama-pull";
 import type { LLMModelDetail, LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride, LLMTestResult } from "@/lib/types";
@@ -48,6 +48,7 @@ const THINKING_TYPES: { value: string; label: string }[] = [
   { value: NONE, get label() { return swt("interface.m1329"); } },
   { value: "disabled", get label() { return swt("interface.m0211"); } },
   { value: "enabled", get label() { return swt("interface.m0210"); } },
+  { value: "adaptive", get label() { return swt("settings.thinkingAdaptive"); } },
 ];
 // Output-limit request key matters only for OpenAI format; reuse NONE/empty-string conversion.
 const MAX_TOKENS_FIELDS: { value: string; label: string }[] = [
@@ -64,6 +65,14 @@ const MAX_TOKENS_FIELD_HINTS: Record<string, string> = {
 type ProfileFormat = LLMProfile["format"];
 const FORMATS: readonly string[] = ["anthropic", "openai", "openai-responses", "ollama"];
 const ZAI_PRESETS = ["zai-general", "zai-coding-reference"] as const;
+const CLOUD_PRESETS = [
+  { id: "deepseek", key: "providers.deepseek", help: "providers.deepseekHelp" },
+  { id: "claude", key: "providers.claude", help: "providers.claudeHelp" },
+  { id: "openai", key: "providers.openai", help: "providers.openaiHelp" },
+  { id: "qwen", key: "providers.qwen", help: "providers.qwenHelp" },
+  { id: "kimi", key: "providers.kimi", help: "providers.kimiHelp" },
+  { id: "openrouter", key: "providers.openrouter", help: "providers.openrouterHelp" },
+] as const;
 const OLLAMA_PRESETS = [
   { id: "ollama-host", key: "providers.ollamaHost", help: "providers.ollamaHostHelp" },
   { id: "ollama-docker-host", key: "providers.ollamaDockerHost", help: "providers.ollamaDockerHostHelp" },
@@ -326,7 +335,8 @@ function ProfileSheet({
   onSaved: (id: string) => void;
 }) {
   "use no memo";
-  const { t: swt, locale: swLocale } = useI18n();
+  const { t: swt, locale: swLocale, fmt } = useI18n();
+  const gigabytes = (n: number) => fmt.number(n / 1e9, { style: "unit", unit: "gigabyte", maximumFractionDigits: 1 });
 
   const isNew = !profile;
   const [preset, setPreset] = React.useState<LLMProfilePresetId | "">("");
@@ -345,7 +355,7 @@ function ProfileSheet({
   const [priority, setPriority] = React.useState("0"); // Rotation priority; higher values first.
   const [poolExclude, setPoolExclude] = React.useState(false);
   const [streaming, setStreaming] = React.useState(true); // True means streaming (default), false means nonstreaming.
-  const [maxTokens, setMaxTokens] = React.useState("0"); // Per-response output limit; 0 omits the field.
+  const [maxTokens, setMaxTokens] = React.useState("0"); // Per-response output limit; 0 uses the call path's default (32768 on agent turns).
   const [maxTokensField, setMaxTokensField] = React.useState(NONE); // Output-limit field name; NONE means max_tokens.
   const [sessionHeaderKey, setSessionHeaderKey] = React.useState(""); // Custom session header name; blank omits it.
   const [retry, setRetry] = React.useState<LLMRetryOverride>(ZERO_OVERRIDE); // Profile retry overrides; all zeros follow global settings.
@@ -418,8 +428,8 @@ function ProfileSheet({
     setFormat(next.format);
     setModel(next.model);
     setBaseUrl(next.base_url);
-    setThinkingType(next.thinking_type);
-    setEffort(next.reasoning_effort);
+    setThinkingType(fromStore(next.thinking_type));
+    setEffort(fromStore(next.reasoning_effort));
     setCw(String(next.context_window_k));
     setMaxTokens(String(next.max_tokens));
     setMaxTokensField(fromStore(next.max_tokens_field));
@@ -449,7 +459,7 @@ function ProfileSheet({
     setFormat(nextFormat);
     if (nextFormat === "ollama" && format !== "ollama") {
       // Drop a cloud template's URL and credential before read-only local discovery.
-      const cloudTemplateURL = (ZAI_PRESETS as readonly string[]).includes(preset)
+      const cloudTemplateURL = preset && !isOllamaPreset(preset)
         ? getLLMProfilePreset(preset).base_url : "";
       const nextBaseUrl = !baseUrl.trim() || baseUrl === cloudTemplateURL
         ? getLLMProfilePreset("ollama-host").base_url : baseUrl;
@@ -587,7 +597,7 @@ function ProfileSheet({
     <Sheet open={open} onOpenChange={changeOpen}>
       <SheetContent
         side="right"
-        className="flex flex-col gap-0 p-0 data-[side=right]:min-w-[420px] data-[side=right]:sm:max-w-xl"
+        className="flex flex-col gap-0 p-0 data-[side=right]:min-w-[min(420px,100vw)] data-[side=right]:sm:max-w-xl"
       >
         <SheetHeader className="px-4">
           <SheetTitle className="flex items-center gap-2">
@@ -617,6 +627,11 @@ function ProfileSheet({
                     <SelectLabel>{swt("providers.groupCloud")}</SelectLabel>
                     <SelectItem value="zai-general">{swt("providers.general")}</SelectItem>
                     <SelectItem value="zai-coding-reference">{swt("providers.coding")}</SelectItem>
+                    {CLOUD_PRESETS.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {swt(o.key)}
+                      </SelectItem>
+                    ))}
                   </SelectGroup>
                   <SelectGroup>
                     <SelectLabel>{swt("providers.groupLocal")}</SelectLabel>
@@ -638,6 +653,11 @@ function ProfileSheet({
                   <p className="text-amber-700 text-xs dark:text-amber-400">{swt("providers.ollamaCloudWarning")}</p>
                   <a className="text-xs underline underline-offset-4" href="https://docs.ollama.com/api" target="_blank" rel="noreferrer">{swt("providers.officialOllama")}</a>
                 </>
+              )}
+              {preset && isCloudEconomyPreset(preset) && (
+                <p className="text-muted-foreground text-xs">
+                  {swt(CLOUD_PRESETS.find((o) => o.id === preset)?.help ?? "providers.deepseekHelp")}
+                </p>
               )}
               {(ZAI_PRESETS as readonly string[]).includes(preset) && (
                 <>
@@ -944,7 +964,7 @@ function ProfileSheet({
                   {swt("interface.m1414")}</p>
               </div>
               <Select value={thinkingType} onValueChange={setThinkingType}>
-                <SelectTrigger className="w-32 shrink-0">
+                <SelectTrigger id="p-thinking" className="w-32 shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -999,6 +1019,17 @@ function ProfileSheet({
                 <dd>{swt("providers.diagLoadValue", { ms: Math.round(diag.load_duration_ms ?? 0) })}</dd>
                 <dt className="text-muted-foreground">{swt("providers.diagSpeed")}</dt>
                 <dd>{swt("providers.diagSpeedValue", { tps: (diag.tokens_per_second ?? 0).toFixed(1) })}</dd>
+                <dt className="text-muted-foreground">{swt("providers.diagGpu")}</dt>
+                {/* Percent is present only when /api/ps reported a nonzero total size; VRAM bytes may be omitted when zero. */}
+                <dd className={diag.gpu_offload_percent === undefined ? "text-muted-foreground" : undefined}>
+                  {diag.gpu_offload_percent === undefined
+                    ? swt("providers.diagGpuUnknown")
+                    : swt("providers.diagGpuValue", {
+                        percent: fmt.number(diag.gpu_offload_percent / 100, { style: "percent", maximumFractionDigits: 0 }),
+                        vram: gigabytes(diag.size_vram_bytes ?? 0),
+                        total: gigabytes(diag.size_bytes ?? 0),
+                      })}
+                </dd>
               </dl>
             ) : (
               <>
@@ -1014,6 +1045,18 @@ function ProfileSheet({
                 <p className="break-words font-mono text-destructive">{diag.error}</p>
               </>
             )}
+            {diag.gpu_offload_percent !== undefined && <p className="text-muted-foreground">{swt("providers.diagGpuNote")}</p>}
+            {(diag.gpu_offload_percent !== undefined && diag.gpu_offload_percent <= 80) ||
+            !!diag.other_loaded_models?.length ||
+            diag.judge_model_mismatch ? (
+              <ul role="status" className="grid gap-1 text-amber-700 dark:text-amber-400">
+                {diag.gpu_offload_percent !== undefined && diag.gpu_offload_percent <= 80 && <li>{swt("providers.diagWarnOffload")}</li>}
+                {!!diag.other_loaded_models?.length && (
+                  <li className="break-words">{swt("providers.diagWarnOtherModels", { models: diag.other_loaded_models.join(", ") })}</li>
+                )}
+                {diag.judge_model_mismatch && <li>{swt("providers.diagWarnJudge")}</li>}
+              </ul>
+            ) : null}
           </section>
         )}
 

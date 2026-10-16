@@ -594,7 +594,11 @@ func (m *Manager) WebSearchOpts() agent.WebSearchOpts {
 	}
 	o := agent.WebSearchOpts{Enabled: on, Backend: backend, BraveKey: braveKey, TavilyKey: tavilyKey, Proxy: proxy, PolicyResolver: m.effectiveLLMPolicy}
 	if backend == deepSeekWebSearchBackend {
-		o.DeepSeekBaseURL, o.DeepSeekAPIKey, o.DeepSeekModel = m.deepSeekSearchCreds()
+		o.DeepSeekMeter.Store = m.pg
+		if profile, err := m.pg.ActiveProfile(); err == nil && profile != nil {
+			o.DeepSeekBaseURL, o.DeepSeekAPIKey, o.DeepSeekModel = profile.BaseURL, profile.APIKey, profile.Model
+			o.DeepSeekMeter.ProfileName = profile.Name
+		}
 	}
 	return o
 }

@@ -63,20 +63,38 @@ func TestDeepSeekSearchLivePolicyAndCapturedBackend(t *testing.T) {
 	}
 }
 
-func TestSearchPolicyPreservesNonLLMBackendsAndDisabledSearch(t *testing.T) {
-	existing := actool.Build(actool.Spec{Name: "fixture"})
+func TestSearchPolicyAllBackendsLiveAndDisabled(t *testing.T) {
 	for _, backend := range []string{"", "ddgs", "brave-free", "tavily"} {
-		opts := agentcore.Options{EnableWebSearch: true, WebSearchBackend: backend, Tools: []actool.CoreTool{existing}}
-		secureWebSearch(&opts, func() (bool, []string) { t.Fatal("non-LLM backend consulted policy"); return true, nil })
-		if !opts.EnableWebSearch || len(opts.Tools) != 1 || opts.Tools[0] != existing {
-			t.Fatalf("non-LLM backend %q changed", backend)
-		}
+		t.Run(backend, func(t *testing.T) {
+			strict, calls := false, 0
+			opts := agentcore.Options{EnableWebSearch: true, WebSearchBackend: backend, BraveSearchAPIKey: "fixture", TavilySearchAPIKey: "fixture"}
+			secureWebSearch(&opts, func() (bool, []string) { return strict, nil })
+			if opts.EnableWebSearch || len(opts.Tools) != 1 {
+				t.Fatalf("unwrapped backend %q: %+v", backend, opts)
+			}
+			wrapped := opts.Tools[0].(*localOnlyDeepSeekSearch)
+			wrapped.CoreTool = actool.Build(actool.Spec{Name: "web_search", Run: func(context.Context, json.RawMessage, *actool.ToolContext) (actool.Result, error) {
+				calls++
+				return actool.Text("ok"), nil
+			}})
+			_, _ = wrapped.Call(t.Context(), json.RawMessage(`{"query":"x"}`), nil)
+			strict = true
+			result, err := wrapped.Call(t.Context(), json.RawMessage(`{"query":"x"}`), nil)
+			if calls != 1 || err != nil || !result.IsError {
+				t.Fatalf("strict backend bypass: %d %+v %v", calls, result, err)
+			}
+			strict = false
+			_, _ = wrapped.Call(t.Context(), json.RawMessage(`{"query":"x"}`), nil)
+			if calls != 2 {
+				t.Fatal("strict-off behavior changed")
+			}
+		})
 	}
 	opts := deepSeekSearchOptions()
 	opts.EnableWebSearch = false
 	secureWebSearch(&opts, func() (bool, []string) { return true, nil })
 	if opts.EnableWebSearch || len(opts.Tools) != 0 {
-		t.Fatal("disabled search was added")
+		t.Fatal("disabled search added")
 	}
 }
 

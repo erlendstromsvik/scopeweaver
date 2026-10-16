@@ -2,6 +2,32 @@
 
 [한국어](ko/VERIFICATION.md)
 
+## Native hardening candidate — 2026-10-15
+
+Local and independent checks on `feat/ollama-zero-egress-hardening`, based on main `33b131e`. These are candidate results; exact-head remote CI and PR delivery remain pending. Historical sections below retain their original results.
+
+| Check actually run | Result |
+| --- | --- |
+| Independent Go run, 20 packages with isolated disposable PostgreSQL databases | 1,366 tests/subtests passed, 0 failures; `enrich` has no test files; 2 opt-in skips (`TestAgentAdapterE2E`, `TestLiveContextReview`) |
+| Agent adapter, checked separately | 7 unit tests and 3 real MCP/Pi scenarios passed; external live-provider review intentionally not run |
+| Focused backend `-race` suites | Passed with no race reports: transport, wire/usage, context, origin selection/failure, search/update and admission |
+| `go vet ./...` | Passed |
+| Frontend unit/localization and static export | 45 passed; 3,168 EN/KO/zh-Hans keys preserve parity, placeholders and rich tags; TypeScript and all 31 static pages passed |
+| Backend catalog | 1,943 production keys passed raw three-language completeness/parity and printf checks |
+| Installer, Compose and notices | 8 installer fixtures, 11 Compose credential cases, notice checks in 5 packaging-fixture archives per language (EN/KO), and 6 release-notice tests under Python 3.12 passed |
+| Static builds and dependency check | macOS embedded build and Windows amd64 cross-build passed; no `go.mod`/`go.sum` drift; native Windows runtime not run |
+| Embedded-browser smoke | Rebuilt final UI: 60 passed (48 smoke + 12 dashboard), 0 failures. Settled desktop/mobile screenshots and horizontal bounds passed in EN/KO/zh-Hans: sheet [0,390] at 390px and [864,1440] at 1440px; all 20 critical contents fit. The earlier 420px minimum-width clipping was reproduced and corrected |
+
+The [native HTTP priority regression](../server/ollama_priority_test.go) holds worker 1 inside `/api/chat`, queues workers 2/3, then invokes the real wired judge without a caller-supplied urgency marker. It passed under `-race` with HTTP order **worker 1 → judge → worker 2 → worker 3**, peak concurrency 1, a valid native judge schema/verdict, all calls completed and no leaked slot. Existing queue tests cover FIFO roles, cancellation and lowered limits.
+
+The [native-origin failure regression](../server/provider_origin_failure_test.go) failed before the fix: a pending native tool followed by a stream error could inherit the global cloud `allow` default. After the fix, Stream/Complete and terminal routing errors retain the concrete native profile, 90-second/`ask` model policy and 300-second/`deny` human-approval expiry, without calling the reviewer. Actual cloud failover still clears native preference. The regression and affected race suites passed.
+
+Real authenticated API checks toggled strict mode **false → true → false** against a local proxy that never forwards requests. All four search backends (`ddgs`, `brave-free`, `tavily`, `deepseek`) reached that sink only while strict mode was off; each produced zero additional sink requests while strict. Strict update checks and apply were blocked while local status remained available. [Update regressions](../server/update_policy_test.go) also passed for cached data, redirects, live body reads and cleanup/failure completion after an admitted asynchronous download is blocked by a later toggle. These checks do not claim whole-host egress control.
+
+Host Ollama **0.32.15**, using existing `qwen3:4b` with a **4,096-token output budget**, passed native diagnostics, decision/comment schema, structured tool call/result replay, usage and requested 32K context (`/api/ps`: **32,768**). Earlier failures with 256/512-token budgets remain part of the evidence; they were not discarded as successful runs. The observed load/speed/offload values are one warm-run snapshot, not a benchmark or residency guarantee. No model was downloaded or host configuration changed, and no autonomous task completion or security-assessment quality is claimed.
+
+Browser coverage includes three-language diagnostics/warnings, strict-update status, judge loading/failure protection and existing dashboard/usage flows. Visual QA reproduced a fixed 420px minimum-width editor extending 30px beyond the left edge of a 390px viewport. The minimum now fits the viewport; the rebuilt app passed all 60 checks, and all six desktop/mobile captures show readable labels with settled content inside the viewport. An independent embedded rebuild matched the browser binary byte for byte. Exact-head remote CI and PR readback are separate delivery gates. No merge, release, paid provider call, external target scan or real notification is claimed.
+
 ## Provider authentication follow-up — 2026-10-15
 
 Local regression checks on `fix/provider-env-auth`, based on merged main `38fde23`, reproduce and fix two authenticated-local-gateway failures. Startup provider-key fallback and blank-key connection testing each returned HTTP 401 with the previous implementation for Anthropic, OpenAI Chat Completions and OpenAI Responses. The same fixtures pass with the fixes.

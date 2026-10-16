@@ -170,7 +170,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	if mainSeg > 0 {
 		noaSession = fmt.Sprintf("exp%d-main-s%d", ts.ID(), mainSeg)
 	}
-	secureWebSearch(&opts, m.webSearch.PolicyResolver)
+	secureWebSearch(&opts, m.webSearch.PolicyResolver, m.webSearch.DeepSeekMeter)
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: m.nativeOllamaFn != nil && m.nativeOllamaFn(), ContextWindow: m.compactionWindow()})
 	enableNoa(&opts, m.noaEnabledFn, m.workDir, noaSession, noaWarn(noaSession))
 	ctx = attachSideCapture(ctx, &opts)

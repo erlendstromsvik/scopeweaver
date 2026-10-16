@@ -89,12 +89,12 @@ The **LLM → New** form includes GLM-5.3 configuration templates for Z.ai's Gen
 separately labeled Coding Plan reference. Add your own API key; template selection does not save,
 activate, or contact a provider. Coding Plan use is restricted to officially supported tools, and
 ScopeWeaver is not listed. See [provider setup and support limits](docs/llm-providers.md).
+To reduce cloud token use, see [Controlling token use](docs/llm-providers.md#controlling-token-use).
 
 Optional **native Ollama** profiles run without an API key. Three templates cover Ollama on the same
 machine, on the host from Docker, and the opt-in `docker compose --profile local-llm` service. Selecting one reads installed models and prefills one, preferring declared tool support;
 it does not download or run a model. They send a 32K context (`num_ctx` 32,768), one request at a time and a 30-minute keep-alive. An opt-in
-**local-only LLM network** setting (off by default) restricts LLM connections to local or trusted
-addresses. Cloud formats, custom URLs and proxies keep working. See
+**local-only LLM network** setting (off by default) permits only loopback and explicitly trusted inference CIDRs; LAN and Docker addresses now require an allowlist entry. It also blocks all agent web search and update checks/downloads, while local version status and rollback remain available. Target tools keep network access; host/remote Ollama must separately use `OLLAMA_NO_CLOUD=1`. Outside strict mode, cloud formats, custom URLs and proxies keep working. Native requests give queued judge/main-agent/side-question calls the next available slot, with a 90-second/ask native judge default and bounded context safeguards. See
 [native Ollama](docs/llm-providers.md#native-ollama-local-inference).
 
 > Requires a **PostgreSQL** database. Exploration needs an **LLM** configured

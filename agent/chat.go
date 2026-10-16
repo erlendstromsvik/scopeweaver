@@ -173,7 +173,7 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 		opts.SessionID = sessionID
 	}
 	// Experimental noa compaction stores persistent archives under <workDir>/noa/<SessionID>.
-	secureWebSearch(&opts, ws.PolicyResolver)
+	secureWebSearch(&opts, ws.PolicyResolver, ws.DeepSeekMeter)
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: c.nativeOllamaFn != nil && c.nativeOllamaFn(), ContextWindow: c.window})
 	enableNoa(&opts, c.noaEnabledFn, c.workDir, "chat-"+sessionID, noaWarn("chat-"+sessionID))
 	ctx = attachSideCapture(ctx, &opts)

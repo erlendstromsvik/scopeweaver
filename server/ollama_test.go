@@ -423,7 +423,7 @@ func TestDeepSeekSearchProbeRespectsLiveLocalOnlyPolicy(t *testing.T) {
 	if strict, _ := cached.PolicyResolver(); !strict {
 		t.Fatal("cached search options did not observe strict toggle")
 	}
-	for _, backend := range []string{"deepseek", "DEEPSEEK", " deepseek "} {
+	for _, backend := range []string{"deepseek", "DEEPSEEK", " deepseek ", "ddgs", "brave-free", "tavily"} {
 		blocked := call(backend)
 		if blocked["ok"] != false || blocked["error"] != agent.DeepSeekLocalOnlyMessage {
 			t.Fatalf("strict probe not blocked before SDK credentials: %v", blocked)

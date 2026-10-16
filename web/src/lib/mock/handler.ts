@@ -1562,6 +1562,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           output_tokens: 110000,
           cache_read_tokens: 1120000,
           cache_write_tokens: 140000,
+          reasoning_tokens: 36000,
         },
       ],
       daily: [
@@ -1571,6 +1572,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           input_tokens: 520000,
           output_tokens: 38000,
           cache_read_tokens: 370000,
+          reasoning_tokens: 12000,
         },
         {
           profile_name: "default",
@@ -1578,6 +1580,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           input_tokens: 640000,
           output_tokens: 45000,
           cache_read_tokens: 460000,
+          reasoning_tokens: 15000,
         },
         {
           profile_name: "default",
@@ -1585,6 +1588,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           input_tokens: 410000,
           output_tokens: 27000,
           cache_read_tokens: 290000,
+          reasoning_tokens: 9000,
         },
       ],
     };
@@ -1600,6 +1604,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           output_tokens: 86000,
           cache_read_tokens: 940000,
           cache_write_tokens: 120000,
+          reasoning_tokens: 28000,
         },
         {
           model: "claude-haiku-4-5",
@@ -1608,6 +1613,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           output_tokens: 24000,
           cache_read_tokens: 180000,
           cache_write_tokens: 20000,
+          reasoning_tokens: 8000,
         },
       ],
     };
@@ -2473,6 +2479,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       output_tokens: 0,
       cache_read_tokens: 0,
       cache_write_tokens: 0,
+      reasoning_tokens: 0,
       daily: [],
     };
 

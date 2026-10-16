@@ -12,21 +12,34 @@ import (
 )
 
 // DeepSeekLocalOnlyMessage is shared with the search connectivity probe.
-const DeepSeekLocalOnlyMessage = "DeepSeek web search uses a remote LLM and is unavailable while local_llm_only is enabled"
+const WebSearchLocalOnlyMessage = "Web search is unavailable while local_llm_only is enabled"
 
-// secureWebSearch replaces only the SDK's DeepSeek search tool: its private HTTP
-// client cannot receive the application's guarded LLM transport. Keep the SDK
-// schema and permissions, but check the live policy before every invocation.
-func secureWebSearch(opts *agentcore.Options, policy func() (bool, []string)) {
-	if !opts.EnableWebSearch || strings.ToLower(strings.TrimSpace(opts.WebSearchBackend)) != "deepseek" {
+// DeepSeekLocalOnlyMessage remains an alias for callers using the former name.
+const DeepSeekLocalOnlyMessage = WebSearchLocalOnlyMessage
+
+// secureWebSearch retains the SDK tool contract and checks live policy before
+// every backend invocation, including sessions created before a policy change.
+func secureWebSearch(opts *agentcore.Options, policy func() (bool, []string), metering ...DeepSeekSearchMeter) {
+	if !opts.EnableWebSearch {
 		return
 	}
 	opts.EnableWebSearch = false
-	search, err := actool.NewWebSearch(actool.WebSearchConfig{
+	cfg := actool.WebSearchConfig{
 		Backend: opts.WebSearchBackend, BraveAPIKey: opts.BraveSearchAPIKey, TavilyAPIKey: opts.TavilySearchAPIKey,
 		DeepSeekBaseURL: opts.DeepSeekSearchBaseURL, DeepSeekAPIKey: opts.DeepSeekSearchAPIKey, DeepSeekModel: opts.DeepSeekSearchModel,
 		Proxy: opts.WebSearchProxy, CACert: opts.WebSearchCACert, InsecureTLS: opts.WebSearchInsecureTLS,
-	})
+	}
+	var search actool.CoreTool
+	var err error
+	if strings.EqualFold(strings.TrimSpace(cfg.Backend), "deepseek") {
+		var meter DeepSeekSearchMeter
+		if len(metering) > 0 {
+			meter = metering[0]
+		}
+		search, err = NewDeepSeekWebSearch(cfg, meter)
+	} else {
+		search, err = actool.NewWebSearch(cfg)
+	}
 	// Match agentcore's existing behavior: a misconfigured search backend omits
 	// the tool and leaves the rest of the session available.
 	if err != nil {

@@ -185,7 +185,9 @@ func TestDetectPythonSkipsUnusableInterpreter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brokenDir, name), nil, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", brokenDir+string(os.PathListSeparator)+filepath.Dir(fallback))
+	// Prepend to the full PATH rather than replacing it: the fallback may be a
+	// wrapper script (pyenv, asdf) that needs other PATH entries such as bash.
+	t.Setenv("PATH", brokenDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if got := detectPython(); got != fallback {
 		t.Fatalf("detected %q, want runnable fallback %q", got, fallback)
 	}

@@ -996,7 +996,7 @@ export const api = {
     rate_per_second?: number;
     rate_per_minute?: number;
     context_window_k?: number;
-    thinking_type?: string; // Empty string omits the field; otherwise disabled or enabled.
+    thinking_type?: string; // Empty string omits the field; otherwise disabled, enabled or adaptive.
     reasoning_effort?: string; // Empty string omits the field; otherwise low/medium/high/xhigh/max.
     priority?: number; // Rotation priority, higher first.
     pool_exclude?: boolean; // True excludes this profile from failover targets.

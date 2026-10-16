@@ -40,6 +40,7 @@ import (
 // web_search_20250305 tool, consuming a model call and making requests on DeepSeek's
 // servers, outside the local proxy and traffic capture.
 type WebSearchOpts struct {
+	DeepSeekMeter DeepSeekSearchMeter
 	// PolicyResolver reads the live LLM egress policy; it is independent of the selected backend.
 	PolicyResolver func() (bool, []string)
 	Enabled        bool
@@ -486,7 +487,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 
 	// Experimental noa compaction stores persistent archives under <workDir>/noa/<SessionID>.
 	noaSession := WorkerSessionID(ts.ID(), intent.ID)
-	secureWebSearch(&opts, w.webSearch.PolicyResolver)
+	secureWebSearch(&opts, w.webSearch.PolicyResolver, w.webSearch.DeepSeekMeter)
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: w.nativeOllamaFn != nil && w.nativeOllamaFn(), ContextWindow: w.compactionWindow()})
 	enableNoa(&opts, w.noaEnabledFn, w.workDir, noaSession, noaWarn(noaSession))
 	ctx = attachSideCapture(ctx, &opts)

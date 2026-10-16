@@ -353,18 +353,20 @@ export default function DashboardPage() {
     return m;
   }, [swLocale, llmProfiles]);
 
-  type Bucket = { input: number; output: number; cacheRead: number; cacheWrite: number; taskCount: number };
+  // reasoning is a subset of output (llm_usage only); it is shown separately and never added to totals.
+  type Bucket = { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; taskCount: number };
 
   // Legacy profile buckets use task.tokens and conversation usage from activity.
   const tokenByProfileOld = React.useMemo<Map<number | null, Bucket>>(() => {
     const m = new Map<number | null, Bucket>();
     const fold = (key: number | null, inp: number, out: number, cr: number, cw: number, addTask: boolean) => {
-      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
+      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, taskCount: 0 };
       m.set(key, {
         input: prev.input + inp,
         output: prev.output + out,
         cacheRead: prev.cacheRead + cr,
         cacheWrite: prev.cacheWrite + cw,
+        reasoning: 0,
         taskCount: prev.taskCount + (addTask ? 1 : 0),
       });
     };
@@ -397,12 +399,13 @@ export default function DashboardPage() {
     for (const p of usageStats?.by_profile ?? []) {
       // Unmatched profiles (renamed, deleted, or unnamed) enter the default bucket and still count in All.
       const key = profileIdByName.get(p.profile_name) ?? defaultProfileId;
-      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
+      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, taskCount: 0 };
       m.set(key, {
         input: prev.input + p.input_tokens,
         output: prev.output + p.output_tokens,
         cacheRead: prev.cacheRead + p.cache_read_tokens,
         cacheWrite: prev.cacheWrite + p.cache_write_tokens,
+        reasoning: prev.reasoning + (p.reasoning_tokens ?? 0),
         taskCount: prev.taskCount + p.tasks,
       });
     }
@@ -417,20 +420,22 @@ export default function DashboardPage() {
         output = 0,
         cacheRead = 0,
         cacheWrite = 0,
+        reasoning = 0,
         taskCount = 0;
       for (const v of tokenByProfile.values()) {
         input += v.input;
         output += v.output;
         cacheRead += v.cacheRead;
         cacheWrite += v.cacheWrite;
+        reasoning += v.reasoning;
         taskCount += v.taskCount;
       }
-      return { input, output, cacheRead, cacheWrite, taskCount };
+      return { input, output, cacheRead, cacheWrite, reasoning, taskCount };
     }
     const v = tokenByProfile.get(tokenTab as number | null);
     return v
-      ? { input: v.input, output: v.output, cacheRead: v.cacheRead, cacheWrite: v.cacheWrite, taskCount: v.taskCount }
-      : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
+      ? { input: v.input, output: v.output, cacheRead: v.cacheRead, cacheWrite: v.cacheWrite, reasoning: v.reasoning, taskCount: v.taskCount }
+      : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, taskCount: 0 };
   }, [swLocale, tokenTab, tokenByProfile]);
 
   // Legacy daily buckets assign total task/conversation usage to creation dates, an approximation.
@@ -465,15 +470,17 @@ export default function DashboardPage() {
     const now = new Date();
     now.setDate(now.getDate() - tokenDays);
     const cutoff = now.toISOString().slice(0, 10);
-    const m = new Map<string, { inputCacheMiss: number; output: number; cacheRead: number }>();
+    // reasoning is not a stacked series; the tooltip shows it as part of output.
+    const m = new Map<string, { inputCacheMiss: number; output: number; cacheRead: number; reasoning: number }>();
     for (const d of usageStats?.daily ?? []) {
       if (d.date < cutoff) continue;
       if (tokenTab !== "all" && (profileIdByName.get(d.profile_name) ?? defaultProfileId) !== tokenTab) continue;
-      const prev = m.get(d.date) ?? { inputCacheMiss: 0, output: 0, cacheRead: 0 };
+      const prev = m.get(d.date) ?? { inputCacheMiss: 0, output: 0, cacheRead: 0, reasoning: 0 };
       m.set(d.date, {
         inputCacheMiss: prev.inputCacheMiss + Math.max(0, d.input_tokens - d.cache_read_tokens),
         output: prev.output + d.output_tokens,
         cacheRead: prev.cacheRead + d.cache_read_tokens,
+        reasoning: prev.reasoning + (d.reasoning_tokens ?? 0),
       });
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date: date.slice(5), ...v }));
@@ -732,6 +739,12 @@ export default function DashboardPage() {
                   );
                 });
               })()}
+              {tokenVersion === "new" && (
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground">{swt("app.reasoningInOutput")}</span>
+                  <span className="font-mono tabular-nums text-violet-400/80">{fmtTokens(displayedTokens.reasoning)}</span>
+                </div>
+              )}
             </div>
 
             {/* Cache hit rate */}
@@ -823,15 +836,26 @@ export default function DashboardPage() {
                     content={
                       <ChartTooltipContent
                         indicator="line"
-                        formatter={(value, name) => (
-                          <div className="flex w-full items-center justify-between gap-4">
-                            <span>
-                              {(dailyTrendConfig as Record<string, { label: string }>)[String(name)]?.label ??
-                                String(name)}
-                            </span>
-                            <span className="font-mono font-semibold tabular-nums">{fmtTokens(Number(value))}</span>
-                          </div>
-                        )}
+                        formatter={(value, name, _item, _index, row) => {
+                          const reasoning = name === "output" ? Number((row as { reasoning?: number })?.reasoning ?? 0) : 0;
+                          return (
+                            <div className="flex w-full flex-col gap-0.5">
+                              <div className="flex w-full items-center justify-between gap-4">
+                                <span>
+                                  {(dailyTrendConfig as Record<string, { label: string }>)[String(name)]?.label ??
+                                    String(name)}
+                                </span>
+                                <span className="font-mono font-semibold tabular-nums">{fmtTokens(Number(value))}</span>
+                              </div>
+                              {reasoning > 0 && (
+                                <div className="flex w-full items-center justify-between gap-4 text-muted-foreground">
+                                  <span>{swt("app.reasoningInOutput")}</span>
+                                  <span className="font-mono tabular-nums">{fmtTokens(reasoning)}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }}
                       />
                     }
                   />

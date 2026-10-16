@@ -1,12 +1,14 @@
 package ollama
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"iter"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +47,7 @@ type chatRequest struct {
 	KeepAlive string         `json:"keep_alive"`
 	Options   map[string]any `json:"options"`
 	Think     any            `json:"think,omitempty"`
-	Format    string         `json:"format,omitempty"`
+	Format    any            `json:"format,omitempty"`
 }
 type chatResponse struct {
 	Message               chatMessage `json:"message"`
@@ -90,7 +92,9 @@ func (p *Provider) wire(ctx context.Context, req llm.CompletionRequest, stream b
 	if len(req.Stop) > 0 {
 		out.Options["stop"] = req.Stop
 	}
-	if opts.JSON {
+	if opts.Schema != nil {
+		out.Format = opts.Schema
+	} else if opts.JSON {
 		out.Format = "json"
 	}
 	thinking := opts.ThinkingType
@@ -147,12 +151,9 @@ func (p *Provider) wire(ctx context.Context, req llm.CompletionRequest, stream b
 			case llm.BlockThinking:
 				msg.Thinking += b.Thinking
 			case llm.BlockToolUse:
-				args := b.Input
-				if len(args) == 0 {
-					args = json.RawMessage(`{}`)
-				}
-				if !json.Valid(args) {
-					return out, locale.Errorf("ollama: invalid arguments for tool %s", b.Name)
+				args, err := toolArguments(b.Name, b.Input)
+				if err != nil {
+					return out, err
 				}
 				msg.ToolCalls = append(msg.ToolCalls, toolCall{ID: b.ID, Function: toolFunction{Name: b.Name, Arguments: args}})
 			case llm.BlockToolResult:
@@ -179,6 +180,32 @@ func (p *Provider) wire(ctx context.Context, req llm.CompletionRequest, stream b
 		out.Tools = append(out.Tools, chatTool{Type: "function", Function: toolFunction{Name: tool.Name, Description: tool.Description, Parameters: tool.InputSchema}})
 	}
 	return out, nil
+}
+
+// Native servers may encode an argument object as a JSON string.
+func toolArguments(name string, raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) > 0 && raw[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return nil, locale.Errorf("ollama: invalid arguments for tool %s", name)
+		}
+		raw = bytes.TrimSpace([]byte(encoded))
+	}
+	if len(raw) == 0 || raw[0] != '{' || !json.Valid(raw) {
+		return nil, locale.Errorf("ollama: invalid arguments for tool %s", name)
+	}
+	return raw, nil
+}
+
+func (p *Provider) warnNearContextLimit(resp chatResponse) {
+	window := contextWindow(p.opts)
+	if resp.PromptEvalCount > 0 && resp.PromptEvalCount >= window-64 {
+		log.Printf("[ollama] %s", locale.Errorf("Native Ollama prompt token count is near the configured context limit (model %s, prompt_eval_count %d, num_ctx %d); this heuristic does not prove truncation", p.model, resp.PromptEvalCount, window))
+	}
 }
 func (p *Provider) id(id string) string {
 	if id != "" {
@@ -214,6 +241,7 @@ func (p *Provider) completeOnce(ctx context.Context, req llm.CompletionRequest) 
 	if !resp.Done {
 		return msg, "", llm.Usage{}, locale.Errorf("ollama: incomplete response (missing done)")
 	}
+	p.warnNearContextLimit(resp)
 	if resp.Message.Thinking != "" {
 		msg.Content = append(msg.Content, llm.ContentBlock{Type: llm.BlockThinking, Thinking: resp.Message.Thinking})
 	}
@@ -221,9 +249,9 @@ func (p *Provider) completeOnce(ctx context.Context, req llm.CompletionRequest) 
 		msg.Content = append(msg.Content, llm.TextBlock(resp.Message.Content))
 	}
 	for _, call := range resp.Message.ToolCalls {
-		args := call.Function.Arguments
-		if len(args) == 0 {
-			args = json.RawMessage(`{}`)
+		args, err := toolArguments(call.Function.Name, call.Function.Arguments)
+		if err != nil {
+			return msg, "", usage(resp), err
 		}
 		msg.Content = append(msg.Content, llm.ContentBlock{Type: llm.BlockToolUse, ID: p.id(call.ID), Name: call.Function.Name, Input: args})
 	}
@@ -276,20 +304,22 @@ func (p *Provider) streamOnce(ctx context.Context, req llm.CompletionRequest) it
 				return
 			}
 			for _, call := range chunk.Message.ToolCalls {
+				args, err := toolArguments(call.Function.Name, call.Function.Arguments)
+				if err != nil {
+					yield(llm.StreamEvent{}, err)
+					return
+				}
 				hasTools = true
 				id := p.id(call.ID)
 				if !yield(llm.StreamEvent{Type: llm.SEToolUseStart, ToolID: id, ToolName: call.Function.Name}, nil) {
 					return
-				}
-				args := call.Function.Arguments
-				if len(args) == 0 {
-					args = json.RawMessage(`{}`)
 				}
 				if !yield(llm.StreamEvent{Type: llm.SEToolInputJSON, ToolID: id, Text: string(args)}, nil) {
 					return
 				}
 			}
 			if chunk.Done {
+				p.warnNearContextLimit(chunk)
 				if !hasContent {
 					yield(llm.StreamEvent{}, errEmpty)
 					return

@@ -1,8 +1,15 @@
 package dbtest
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/Autumn-27/artex/config"
 )
 
 // withLiveDSN temporarily overrides the package-level liveDSN (captured at init)
@@ -113,5 +120,37 @@ func TestResolveDSNReturnsThrowawayDSN(t *testing.T) {
 	}
 	if f.skipped || f.fataled {
 		t.Fatalf("unexpected skip=%v fatal=%v for a valid throwaway DSN", f.skipped, f.fataled)
+	}
+}
+
+// TestDisabledDSNShadowsLiveConfig checks the value Main exports as ARTEX_PG_DSN
+// when ARTEX_TEST_DSN is unset: it must win over a config.json that names the
+// live database, and connecting to it must fail without reaching any server.
+func TestDisabledDSNShadowsLiveConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	live := `{"database":{"dsn":"postgres://sw_user@127.0.0.1:5432/scopeweaver?sslmode=disable"}}`
+	if err := os.WriteFile(cfg, []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCOPEWEAVER_CONFIG", cfg)
+	t.Setenv("ARTEX_PG_DSN", disabledDSN)
+
+	got, _, err := config.PostgresDSN()
+	if err != nil {
+		t.Fatalf("PostgresDSN: %v", err)
+	}
+	if got != disabledDSN {
+		t.Fatalf("PostgresDSN = %q, want disabledDSN", got)
+	}
+
+	conn, err := sql.Open("pgx", disabledDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.PingContext(ctx); err == nil {
+		t.Fatal("ping disabledDSN succeeded, want a connection error")
 	}
 }

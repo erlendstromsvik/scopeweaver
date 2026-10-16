@@ -3,11 +3,14 @@
 // The ScopeWeaver backend must reach the fixture; set E2E_OLLAMA_FIXTURE_HOST when
 // the backend runs elsewhere (default 127.0.0.1, i.e. the binary runs on this host).
 import http from "node:http";
+import fs from "node:fs";
 import { en as iEn, ko as iKo } from "../web/src/i18n/messages/interface.ts";
 import { en as pEn, ko as pKo } from "../web/src/i18n/messages/providers.ts";
 import { en as sEn, ko as sKo } from "../web/src/i18n/messages/settings.ts";
+import { interface as iZh, providers as pZh, settings as sZh, common as cZh } from "../web/src/i18n/messages/zh-Hans.ts";
+import { en as cEn, ko as cKo } from "../web/src/i18n/messages/common.ts";
 
-const T = { en: { i: iEn, p: pEn, s: sEn }, ko: { i: iKo, p: pKo, s: sKo } };
+const T = { en: { i: iEn, p: pEn, s: sEn, c: cEn }, ko: { i: iKo, p: pKo, s: sKo, c: cKo }, "zh-Hans": { i: iZh, p: pZh, s: sZh, c: cZh } };
 const TOOL_MODEL = "fixture-installed-tools:7b";
 const NO_TOOLS_MODEL = "aaa-fixture-notools:8b";
 const MODELS = {
@@ -19,7 +22,7 @@ function startFixture() {
   const hits = [];
   const chats = [];
   const requests = [];
-  const control = { mode: "ok", holdTags: false, held: [] };
+  const control = { mode: "ok", holdTags: false, held: [], residency: "gpu", otherModels: [] };
   const releaseTags = () => {
     control.holdTags = false;
     for (const send of control.held.splice(0)) send();
@@ -60,7 +63,19 @@ function startFixture() {
         const toolCalls = MODELS[body.model].capabilities.includes("tools") && body.tools?.length ? [{ function: { name: body.tools[0].function.name, arguments: { value: "OK" } } }] : [];
         return send(200, { model: body.model, message: { role: "assistant", content: toolCalls.length ? "" : "OK", tool_calls: toolCalls }, done: true, load_duration: 1_234_000_000, eval_count: 40, eval_duration: 1_000_000_000 });
       }
-      if (req.method === "GET" && path === "/api/ps") return send(200, { models: lastModel ? [{ name: lastModel, model: lastModel, context_length: 32768 }] : [] });
+      if (req.method === "GET" && path === "/api/ps") {
+        const sizes = {
+          gpu: { size: 10_000_000_000, size_vram: 10_000_000_000 },
+          cpu: { size: 10_000_000_000, size_vram: 0 },
+          partial: { size: 10_000_000_000, size_vram: 8_000_000_000 },
+          above: { size: 10_000_000_000, size_vram: 8_100_000_000 },
+          unknown: { size: 0 },
+        }[control.residency];
+        return send(200, { models: lastModel ? [
+          { name: lastModel, model: lastModel, context_length: 32768, ...sizes },
+          ...control.otherModels.map((name) => ({ name, model: name, context_length: 32768 })),
+        ] : [] });
+      }
       send(404, { error: "not found" });
     });
   });
@@ -72,7 +87,7 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
   const fixture = await startFixture();
   const auth = { Authorization: `Bearer ${token}` };
   try {
-    for (const locale of ["en", "ko"]) {
+    for (const locale of ["en", "ko", "zh-Hans"]) {
       const t = T[locale];
       const name = `e2e ollama ${locale}`;
       const initialHits = fixture.hits.length;
@@ -128,6 +143,11 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
           await p.locator("#p-preset").click();
           await p.getByRole("option", { name: t.p.general, exact: true }).click();
           check(await p.inputValue("#p-base-url") === "https://api.z.ai/api/paas/v4" && await p.inputValue("#p-model") === "glm-5.3", "GLM template changed");
+          // A template that omits thinking shows the "do not send" choice, not a blank selector.
+          await p.locator("#p-preset").click();
+          await p.getByRole("option", { name: t.p.deepseek, exact: true }).click();
+          check(await p.inputValue("#p-model") === "deepseek-flash", "DeepSeek template not applied");
+          check((await p.locator("#p-thinking").textContent())?.trim() === t.i.m1329, `DeepSeek template thinking shows "${await p.locator("#p-thinking").textContent()}"`);
           await sheet.getByRole("combobox", { name: t.i.m1388, exact: true }).click();
           for (const label of ["Anthropic", "OpenAI (Chat Completions)", "OpenAI (Responses API)", t.p.ollamaFormat]) {
             await p.getByRole("option", { name: label, exact: true }).waitFor();
@@ -179,6 +199,9 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
           const card = p.locator('[data-slot="card"]').filter({ has: p.getByText(name, { exact: true }) });
           await card.getByText(t.p.keyless, { exact: true }).waitFor();
           await card.getByText(t.i.m1339, { exact: true }).waitFor();
+          // Leaving the toast region resumes Sonner's dismissal timer before activation.
+          await p.mouse.move(0, 0);
+          await p.waitForFunction(() => document.querySelectorAll('[data-sonner-toast]').length === 0, null, { timeout: 10_000 });
           await card.getByRole("button", { name: t.i.m1431, exact: true }).click();
           await p.getByText(t.i.m1419.replace("{p0}", name), { exact: true }).waitFor();
           const active = (await (await p.request.get(`${base}/api/llm/profiles`, { headers: auth })).json()).profiles.find((x) => x.name === name);
@@ -225,6 +248,76 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
           await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           check(await p.inputValue("#p-model") === TOOL_MODEL, "opening a saved profile changed its model");
           check(llmCalls.length === before && fixture.chats.length === chatsBefore, "opening a saved profile made a discovery or inference request");
+        });
+
+        await step(`[${locale}] GPU, CPU, unknown and shared-model diagnostics reflect real fixture metadata`, async () => {
+          const sheet = p.getByRole("dialog");
+          const previousJudge = await (await p.request.get(`${base}/api/intercept/judge`, { headers: auth })).json();
+          const create = await p.request.post(`${base}/api/llm/profiles`, { headers: auth, data: {
+            name: `e2e alternate judge ${locale}`, format: "ollama", model: NO_TOOLS_MODEL,
+            base_url: fixture.url, context_window_k: 32, api_key: "",
+          } });
+          check(create.ok(), `judge profile creation failed: ${create.status()}`);
+          const profiles = (await (await p.request.get(`${base}/api/llm/profiles`, { headers: auth })).json()).profiles;
+          const judge = profiles.find((x) => x.name === `e2e alternate judge ${locale}`);
+          try {
+            for (const mode of ["gpu", "cpu", "partial", "above", "unknown"]) {
+              fixture.control.residency = mode;
+              fixture.control.otherModels = mode === "cpu" ? [NO_TOOLS_MODEL] : [];
+              const setJudge = await p.request.put(`${base}/api/intercept/judge`, { headers: auth, data: { ...previousJudge, profile_id: mode === "cpu" ? Number(judge.id) : 0 } });
+              check(setJudge.ok(), "could not configure fixture judge");
+              const result = p.waitForResponse((r) => new URL(r.url()).pathname === "/api/llm/test");
+              await sheet.getByRole("button", { name: t.i.m1418, exact: true }).click();
+              const data = await (await result).json();
+              check(data.ok, `diagnostic failed: ${JSON.stringify(data)}`);
+              await sheet.getByText(t.p.diagGpu, { exact: true }).waitFor();
+              if (mode === "unknown") {
+                check(data.gpu_offload_percent === undefined, "unknown size produced a GPU percentage");
+                await sheet.getByText(t.p.diagGpuUnknown, { exact: true }).waitFor();
+              } else {
+                const expected = { gpu: 100, cpu: 0, partial: 80, above: 81 }[mode];
+                check(data.gpu_offload_percent === expected && data.size_bytes === 10_000_000_000, `${mode} residency ${JSON.stringify(data)}`);
+                await sheet.getByText(t.p.diagGpuNote, { exact: true }).waitFor();
+                const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(expected / 100);
+                const gb = (n) => new Intl.NumberFormat(locale, { style: "unit", unit: "gigabyte", maximumFractionDigits: 1 }).format(n);
+                const value = t.p.diagGpuValue.replace("{percent}", percent).replace("{vram}", gb(expected / 10)).replace("{total}", gb(10));
+                await sheet.getByText(value, { exact: true }).waitFor();
+                check(!value.includes("NaN"), "invalid GPU size rendered");
+              }
+              check(await sheet.getByText(t.p.diagWarnOffload, { exact: true }).count() === (["cpu", "partial"].includes(mode) ? 1 : 0), `${mode} offload threshold warning`);
+              check(await sheet.getByText(t.p.diagWarnJudge, { exact: true }).count() === (mode === "cpu" ? 1 : 0), `${mode} judge warning`);
+              if (mode === "cpu") {
+                check(data.judge_model_mismatch === true && data.other_loaded_models.includes(NO_TOOLS_MODEL), "shared-model metadata absent");
+                await sheet.getByText(t.p.diagWarnOtherModels.replace("{models}", NO_TOOLS_MODEL), { exact: true }).waitFor();
+                const originalViewport = p.viewportSize();
+                try {
+                  for (const width of [1440, 390]) {
+                    await p.setViewportSize({ width, height: 900 });
+                    await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                    // Wait for the real sheet's resize transition before measuring and capturing it.
+                    await p.waitForFunction(() => [...document.querySelectorAll('[data-slot="sheet-content"]')].every((el) => el.getAnimations().every((animation) => animation.playState !== "running")), null, { timeout: 10_000 });
+                    const geometry = await sheet.evaluate((el) => {
+                      const bounds = (node) => { const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, width: r.width }; };
+                      const critical = [...el.querySelectorAll('[data-slot="sheet-title"], label[for="p-name"], label[for="p-model"], #p-name, #p-model, section[aria-label] p, section[aria-label] dt, section[aria-label] dd, section[aria-label] li')].map((node) => ({ text: node.textContent, ...bounds(node) }));
+                      return { sheet: bounds(el), width: el.clientWidth, content: el.scrollWidth, page: document.documentElement.scrollWidth, viewport: window.innerWidth, critical };
+                    });
+                    fs.writeFileSync(`${out}/ollama-cpu-warnings-${locale}-${width}-geometry.json`, JSON.stringify(geometry, null, 2));
+                    check(geometry.content <= geometry.width + 1 && geometry.page <= geometry.viewport + 1, `${width}px diagnostics overflow: ${JSON.stringify(geometry)}`);
+                    check(geometry.sheet.left >= -1 && geometry.sheet.right <= geometry.viewport + 1, `${width}px sheet outside viewport: ${JSON.stringify(geometry.sheet)}`);
+                    check(geometry.critical.length >= 16 && geometry.critical.every((r) => r.left >= -1 && r.right <= geometry.viewport + 1), `${width}px critical diagnostics outside viewport: ${JSON.stringify(geometry.critical)}`);
+                    await p.screenshot({ path: `${out}/ollama-cpu-warnings-${locale}${width === 390 ? "-mobile" : ""}.png` });
+                  }
+                } finally {
+                  if (originalViewport) await p.setViewportSize(originalViewport);
+                }
+              }
+            }
+          } finally {
+            fixture.control.residency = "gpu";
+            fixture.control.otherModels = [];
+            const restore = await p.request.put(`${base}/api/intercept/judge`, { headers: auth, data: previousJudge });
+            check(restore.ok(), "could not restore judge configuration");
+          }
         });
 
         await step(`[${locale}] empty and failed discovery leave a blank editable model and allow reload`, async () => {
@@ -298,6 +391,85 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
           await p.getByText(t.s.localOnlyEnv, { exact: true }).waitFor();
         });
 
+        await step(`[${locale}] strict policy keeps local update status and explains blocked checks`, async () => {
+          const enable = await p.request.put(`${base}/api/settings`, { headers: auth, data: { local_llm_only: true } });
+          check(enable.ok(), "could not enable strict fixture policy");
+          try {
+            const response = p.waitForResponse((r) => new URL(r.url()).pathname === "/api/update/check");
+            await p.reload();
+            const data = await (await response).json();
+            check(data.local_llm_only === true && data.error && typeof data.current === "string" && typeof data.has_backup === "boolean" && data.mode, `strict local status ${JSON.stringify(data)}`);
+            await p.getByText(t.s.updateLocalOnly, { exact: true }).waitFor();
+            await p.getByText(t.s.allowlistHelp, { exact: true }).waitFor();
+            check(await p.getByRole("button", { name: t.i.m1622, exact: true }).isDisabled(), "strict update apply is enabled");
+            const forced = p.waitForResponse((r) => new URL(r.url()).pathname === "/api/update/check" && new URL(r.url()).searchParams.has("force"));
+            await p.getByRole("button", { name: t.i.m1620, exact: true }).click();
+            check((await (await forced).json()).local_llm_only === true, "manual check bypassed strict policy");
+            await p.screenshot({ path: `${out}/ollama-strict-update-${locale}.png` });
+          } finally {
+            const restore = await p.request.put(`${base}/api/settings`, { headers: auth, data: { local_llm_only: false } });
+            check(restore.ok(), "could not restore non-strict policy");
+          }
+        });
+
+        await step(`[${locale}] judge settings cannot save unloaded defaults and retry uses the real server`, async () => {
+          const judgeURL = (url) => url.pathname === "/api/intercept/judge";
+          let release;
+          const gate = new Promise((resolve) => { release = resolve; });
+          let entered;
+          let enteredTimer;
+          let delayHits = 0;
+          let puts = 0;
+          const countPut = (r) => { if (new URL(r.url()).pathname === "/api/intercept/judge" && r.method() === "PUT") puts++; };
+          p.on("request", countPut);
+          const delay = async (route) => { delayHits++; entered(); await gate; await route.continue(); };
+          await p.route(judgeURL, delay);
+          try {
+            await p.goto(`${base}/system/intercept`);
+            const held = new Promise((resolve, reject) => {
+              entered = () => { clearTimeout(enteredTimer); resolve(); };
+              enteredTimer = setTimeout(() => reject(new Error("judge delay route was not entered within 10 seconds")), 10_000);
+            });
+            await Promise.all([held, p.getByRole("tab", { name: t.i.m1240, exact: true }).click()]);
+            check(delayHits > 0, "judge GET bypassed the delay route");
+            const save = p.getByRole("button", { name: t.i.m1228, exact: true });
+            await save.waitFor({ timeout: 10_000 });
+            check(await save.isDisabled(), "judge save enabled before GET completed");
+            check(puts === 0, "loading judge emitted a PUT");
+            const response = p.waitForResponse((r) => new URL(r.url()).pathname === "/api/intercept/judge", { timeout: 10_000 });
+            release();
+            const saved = await (await response).json();
+            await save.waitFor({ state: "visible", timeout: 10_000 });
+            await p.waitForFunction((label) => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === label && !b.disabled), t.i.m1228, { timeout: 10_000 });
+            check(saved.timeout_seconds === 90 && saved.fail_action === "ask" && saved.ask_timeout_seconds === 300 && saved.ask_timeout_action === "deny", `resolved native defaults ${JSON.stringify(saved)}`);
+            check(puts === 0, "judge GET saved placeholder defaults");
+          } finally {
+            clearTimeout(enteredTimer);
+            release();
+            await p.unroute(judgeURL, delay);
+            p.off("request", countPut);
+          }
+          // Abort one actual localized request; retry still reads the unchanged backend response.
+          let abortHits = 0;
+          const abort = (route) => { abortHits++; return route.abort("failed"); };
+          await p.route(judgeURL, abort, { times: 1 });
+          p.on("request", countPut);
+          try {
+            await p.reload();
+            await p.getByRole("tab", { name: t.i.m1240, exact: true }).click();
+            await p.getByText(t.s.judgeLoadFailed, { exact: true }).waitFor({ timeout: 10_000 });
+            check(abortHits === 1, `judge abort route hit ${abortHits} times`);
+            check(await p.getByRole("button", { name: t.i.m1228, exact: true }).isDisabled(), "judge save enabled after GET failure");
+            check(puts === 0, "judge failure emitted a PUT");
+            await p.getByRole("button", { name: t.c.retry, exact: true }).click();
+            await p.waitForFunction((label) => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === label && !b.disabled), t.i.m1228, { timeout: 10_000 });
+            check(abortHits === 1 && puts === 0, "judge retry aborted again or saved defaults");
+          } finally {
+            await p.unroute(judgeURL, abort);
+            p.off("request", countPut);
+          }
+        });
+
         await step(`[${locale}] compatible local keyless health differs from a public cloud profile missing its key`, async () => {
           const localName = `e2e local compatible ${locale}`;
           const publicName = `e2e public missing key ${locale}`;
@@ -315,6 +487,29 @@ export async function runOllamaProfileChecks({ base, token, step, check, openPag
           await card(localName).getByText(t.p.keyless, { exact: true }).waitFor();
           check(await card(localName).getByText(t.i.m1334, { exact: true }).count() === 0, "local compatible profile is mislabeled as missing a key");
           await card(publicName).getByText(t.i.m1334, { exact: true }).waitFor();
+        });
+
+        await step(`[${locale}] adaptive thinking is labeled, saved verbatim and shown again after reload`, async () => {
+          const adaptiveName = `e2e adaptive ${locale}`;
+          const sheet = await newProfile();
+          await p.fill("#p-proxy", "");
+          await p.fill("#p-name", adaptiveName);
+          await p.fill("#p-model", "claude-sonnet-5-5");
+          await p.locator("#p-thinking").click();
+          for (const label of [t.i.m1329, t.i.m0211, t.i.m0210]) await p.getByRole("option", { name: label, exact: true }).waitFor();
+          await p.getByRole("option", { name: t.s.thinkingAdaptive, exact: true }).click();
+          check((await p.locator("#p-thinking").textContent())?.trim() === t.s.thinkingAdaptive, `adaptive selector shows "${await p.locator("#p-thinking").textContent()}"`);
+          await sheet.getByRole("button", { name: t.i.m0728, exact: true }).click();
+          await sheet.waitFor({ state: "hidden" });
+          const saved = (await (await p.request.get(`${base}/api/llm/profiles`, { headers: auth })).json()).profiles.find((x) => x.name === adaptiveName);
+          check(saved?.thinking_type === "adaptive", `adaptive saved as ${JSON.stringify(saved?.thinking_type)}`);
+          await p.reload();
+          await p.getByText(adaptiveName, { exact: true }).click();
+          await p.getByRole("dialog").waitFor();
+          await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          check((await p.locator("#p-thinking").textContent())?.trim() === t.s.thinkingAdaptive, `reloaded adaptive selector shows "${await p.locator("#p-thinking").textContent()}"`);
+          await p.screenshot({ path: `${out}/thinking-adaptive-${locale}.png` });
+          await p.keyboard.press("Escape");
         });
       } finally {
         await p.context().close();

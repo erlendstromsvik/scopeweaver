@@ -12,6 +12,7 @@ import {
   ExternalLinkIcon,
   RefreshCwIcon,
   RotateCcwIcon,
+  ShieldCheckIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -62,7 +63,9 @@ export function UpdateCard() {
       .then((r) => {
         setInfo(r);
         if (!quiet) {
-          if (r.error) toast.error(swt("interface.m1589") + r.error);
+          // Strict local-only mode is a deliberate policy, not a failed connection.
+          if (r.local_llm_only) toast.info(swt("settings.updateLocalOnly"));
+          else if (r.error) toast.error(swt("interface.m1589") + r.error);
           else if (r.has_update) toast.success(swt("interface.m1590", { p0: r.latest }));
           else if (r.comparable) toast.success(swt("interface.m1591"));
         }
@@ -149,7 +152,7 @@ export function UpdateCard() {
   React.useEffect(() => () => updateStream.current?.close(), []);
 
   const doUpdate = () => {
-    if (!info) return;
+    if (!info || info.local_llm_only) return;
     const from = info.current;
     const ok = window.confirm(
       swt("interface.m1594", { p0: info.latest }) +
@@ -252,7 +255,13 @@ export function UpdateCard() {
           </p>
         )}
 
-        {info?.error && (
+        {info?.local_llm_only && (
+          <p role="status" className="flex items-start gap-2 rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
+            {swt("settings.updateLocalOnly")}</p>
+        )}
+
+        {info?.error && !info.local_llm_only && (
           <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
             <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
             {swt("interface.m1609")}{info.error}
@@ -302,7 +311,7 @@ export function UpdateCard() {
           <Button
             size="sm"
             onClick={doUpdate}
-            disabled={busy || restarting || !info?.has_update || info?.asset_available === false}
+            disabled={busy || restarting || info?.local_llm_only || !info?.has_update || info?.asset_available === false}
           >
             <DownloadIcon className="size-4" />
             {info?.has_update ? swt("interface.m1621", { p0: info.latest }) : swt("interface.m1622")}

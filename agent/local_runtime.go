@@ -23,6 +23,8 @@ func applyRuntimePolicy(opts *agentcore.Options, policy RuntimePolicy) {
 	}
 	if policy.ContextWindow <= 32*1024 {
 		opts.MaxToolOutputChars = 16 * 1024
+	} else if policy.ContextWindow <= 64*1024 {
+		opts.MaxToolOutputChars = 32 * 1024
 	}
 	if policy.ContextWindow <= 64*1024 && opts.Compactor == nil {
 		summaryLimit := min(2048, policy.ContextWindow/8)
@@ -35,7 +37,7 @@ func applyRuntimePolicy(opts *agentcore.Options, policy RuntimePolicy) {
 }
 
 // localCompactor uses the SDK's non-destructive boundary/summary mechanism, but
-// triggers at 75% of the actual model context instead of cloud-sized reserves.
+// triggers at 72% of the actual model context instead of cloud-sized reserves.
 // The raw transcript remains intact, including complete tool call/result pairs.
 type localCompactor struct {
 	window, maxOutput int
@@ -48,7 +50,7 @@ func (c *localCompactor) Pre(ctx context.Context, msgs []llm.Message, lastInputT
 	// Include newly appended tool results even when the previous response reported
 	// a smaller prompt. The SDK estimate includes a conservative 4/3 factor.
 	tokens := max(lastInputTokens, compaction.EstimateTokens(llm.MessagesForAPI(msgs))*4/3)
-	if tokens < c.window*3/4 {
+	if tokens < c.window*72/100 {
 		return msgs
 	}
 	out, _ := c.Reactive(ctx, msgs)

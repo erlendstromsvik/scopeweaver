@@ -43,6 +43,7 @@ type Options struct {
 	ThinkingType    string
 	MaxTokens       int
 	JSON            bool
+	Schema          map[string]any
 }
 
 type Client struct {
@@ -157,17 +158,42 @@ type RunningModel struct {
 	Name          string `json:"name"`
 	Model         string `json:"model"`
 	ContextLength int    `json:"context_length"`
+	Size          int64  `json:"size"`
 	SizeVRAM      int64  `json:"size_vram"`
+	sizeVRAMKnown bool
 }
+
+func (m *RunningModel) UnmarshalJSON(data []byte) error {
+	type model RunningModel
+	var wire struct {
+		*model
+		SizeVRAM *int64 `json:"size_vram"`
+	}
+	wire.model = (*model)(m)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	m.sizeVRAMKnown = wire.SizeVRAM != nil
+	m.SizeVRAM = 0
+	if wire.SizeVRAM != nil {
+		m.SizeVRAM = *wire.SizeVRAM
+	}
+	return nil
+}
+
 type Diagnostics struct {
-	Model            string   `json:"model"`
-	Capabilities     []string `json:"capabilities"`
-	ToolsSupported   bool     `json:"tools_supported"`
-	ToolCallVerified bool     `json:"tool_call_verified"`
-	ContextLength    int      `json:"context_length"`
-	ContextVerified  bool     `json:"context_verified"`
-	LoadDurationMS   float64  `json:"load_duration_ms"`
-	TokensPerSecond  float64  `json:"tokens_per_second"`
+	Model             string   `json:"model"`
+	Capabilities      []string `json:"capabilities"`
+	ToolsSupported    bool     `json:"tools_supported"`
+	ToolCallVerified  bool     `json:"tool_call_verified"`
+	ContextLength     int      `json:"context_length"`
+	ContextVerified   bool     `json:"context_verified"`
+	LoadDurationMS    float64  `json:"load_duration_ms"`
+	TokensPerSecond   float64  `json:"tokens_per_second"`
+	SizeBytes         int64    `json:"size_bytes,omitempty"`
+	SizeVRAMBytes     int64    `json:"size_vram_bytes,omitempty"`
+	GPUOffloadPercent *float64 `json:"gpu_offload_percent,omitempty"`
+	OtherLoadedModels []string `json:"other_loaded_models,omitempty"`
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
@@ -229,7 +255,7 @@ func (c *Client) Test(ctx context.Context, model string, opts Options) (Diagnost
 	}
 	out.Capabilities = info.Capabilities
 	out.ToolsSupported = info.Supports("tools")
-	req := chatRequest{Model: model, Messages: []chatMessage{{Role: "user", Content: "Call the scopeweaver_ping tool with value OK to verify tool calling."}}, Tools: []chatTool{{Type: "function", Function: toolFunction{Name: "scopeweaver_ping", Description: "Connection test", Parameters: map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}, "required": []string{"value"}}}}}, KeepAlive: keepAlive(opts), Options: options(opts), Stream: false}
+	req := chatRequest{Model: model, Messages: []chatMessage{{Role: "user", Content: "Call the scopeweaver_ping tool with value OK to verify tool calling."}}, Tools: []chatTool{{Type: "function", Function: toolFunction{Name: "scopeweaver_ping", Description: "Connection test", Parameters: map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}, "required": []string{"value"}}}}}, KeepAlive: keepAlive(opts), Options: options(opts), Stream: false, Think: false}
 	var resp chatResponse
 	if err := c.decode(ctx, "POST", "/api/chat", req, &resp); err != nil {
 		return out, err
@@ -238,11 +264,15 @@ func (c *Client) Test(ctx context.Context, model string, opts Options) (Diagnost
 		return out, locale.Errorf("ollama: %s", resp.Error)
 	}
 	for _, call := range resp.Message.ToolCalls {
+		arguments, err := toolArguments(call.Function.Name, call.Function.Arguments)
+		if err != nil {
+			return out, err
+		}
 		if call.Function.Name == "scopeweaver_ping" {
 			var args struct {
 				Value string `json:"value"`
 			}
-			if json.Unmarshal(call.Function.Arguments, &args) == nil && args.Value == "OK" {
+			if json.Unmarshal(arguments, &args) == nil && args.Value == "OK" {
 				out.ToolCallVerified = true
 			}
 		}
@@ -255,10 +285,41 @@ func (c *Client) Test(ctx context.Context, model string, opts Options) (Diagnost
 	if err != nil {
 		return out, err
 	}
+	selectedNames := []string{model}
 	for _, m := range running {
-		if m.Name == model || m.Model == model || m.Name == model+":latest" {
+		if sameModel(m.Name, model) || sameModel(m.Model, model) {
+			selectedNames = append(selectedNames, m.Name, m.Model)
 			out.ContextLength = m.ContextLength
 			out.ContextVerified = m.ContextLength >= contextWindow(opts)
+			out.SizeBytes = max(0, m.Size)
+			out.SizeVRAMBytes = max(0, m.SizeVRAM)
+			if m.Size > 0 && m.sizeVRAMKnown && m.SizeVRAM >= 0 {
+				percent := min(100.0, max(0.0, float64(m.SizeVRAM)/float64(m.Size)*100))
+				out.GPUOffloadPercent = &percent
+			}
+			break
+		}
+	}
+	for _, m := range running {
+		selected := false
+		for _, alias := range selectedNames {
+			selected = selected || sameModel(m.Name, alias) || sameModel(m.Model, alias)
+		}
+		if selected {
+			continue
+		}
+		name := m.Name
+		if name == "" {
+			name = m.Model
+		}
+		if name != "" {
+			duplicate := false
+			for _, other := range out.OtherLoadedModels {
+				duplicate = duplicate || sameModel(other, name)
+			}
+			if !duplicate {
+				out.OtherLoadedModels = append(out.OtherLoadedModels, name)
+			}
 		}
 	}
 	if !resp.Done {
@@ -274,6 +335,10 @@ func (c *Client) Test(ctx context.Context, model string, opts Options) (Diagnost
 		return out, locale.Errorf("ollama: requested context %d was not verified in /api/ps (reported %d)", contextWindow(opts), out.ContextLength)
 	}
 	return out, nil
+}
+
+func sameModel(a, b string) bool {
+	return a != "" && b != "" && strings.TrimSuffix(a, ":latest") == strings.TrimSuffix(b, ":latest")
 }
 func contextWindow(opts Options) int {
 	if opts.ContextWindow > 0 {

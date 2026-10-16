@@ -2,9 +2,17 @@
 // https://docs.z.ai/guides/llm/glm-5.3
 // https://zcode.z.ai/en/docs/configuration
 // Ollama templates target the native /api/chat path (https://docs.ollama.com/api), verified 2026-10-15.
+// Cloud economy templates follow provider docs checked 2026-10-16; sources are listed in
+// .sdlc/work/gh-24-deepseek-token-consumption/refs/providers.md.
 export const LLM_PROFILE_PRESET_IDS = [
   "zai-general",
   "zai-coding-reference",
+  "deepseek",
+  "claude",
+  "openai",
+  "qwen",
+  "kimi",
+  "openrouter",
   "ollama-host",
   "ollama-docker-host",
   "ollama-compose",
@@ -16,10 +24,24 @@ export interface ZaiPresetFields {
   model: string;
   base_url: string;
   thinking_type: "enabled";
-  reasoning_effort: "max";
+  reasoning_effort: "low";
   context_window_k: number;
   max_tokens: number;
   max_tokens_field: "";
+}
+
+// Opt-in economy defaults: low effort and a 16384-token output cap. context_window_k 0 keeps
+// the 200K compaction default. Empty thinking/effort values omit the request field.
+export interface CloudPresetFields {
+  format: "openai" | "anthropic" | "openai-responses";
+  model: string;
+  base_url: string;
+  thinking_type: "" | "disabled";
+  reasoning_effort: "" | "low";
+  context_window_k: number;
+  max_tokens: number;
+  // Empty sends max_tokens in openai format; anthropic and openai-responses use fixed fields.
+  max_tokens_field: "" | "max_completion_tokens";
 }
 
 export interface OllamaPresetFields {
@@ -39,13 +61,31 @@ export interface OllamaPresetFields {
   llm_max_concurrent: number;
 }
 
-export type LLMProfilePresetFields = ZaiPresetFields | OllamaPresetFields;
+export type LLMProfilePresetFields = ZaiPresetFields | CloudPresetFields | OllamaPresetFields;
 
 const OLLAMA_TARGETS: Record<string, { base_url: string }> = {
   "ollama-host": { base_url: "http://127.0.0.1:11434" },
   "ollama-docker-host": { base_url: "http://host.docker.internal:11434" },
   "ollama-compose": { base_url: "http://ollama:11434" },
 };
+
+type CloudTarget = Pick<CloudPresetFields, "format" | "base_url" | "model" | "thinking_type" | "reasoning_effort" | "max_tokens_field">;
+
+const CLOUD_TARGETS: Record<string, CloudTarget> = {
+  deepseek: { format: "openai", base_url: "https://api.deepseek.com", model: "deepseek-flash", thinking_type: "", reasoning_effort: "low", max_tokens_field: "" },
+  // Haiku allows disabled thinking at effort low; omitting it means adaptive thinking,
+  // whose thinking blocks the pinned SDK drops when replaying tool history.
+  claude: { format: "anthropic", base_url: "https://api.anthropic.com", model: "claude-haiku-5-5", thinking_type: "disabled", reasoning_effort: "low", max_tokens_field: "" },
+  openai: { format: "openai-responses", base_url: "https://api.openai.com/v1", model: "gpt-6-luna", thinking_type: "", reasoning_effort: "low", max_tokens_field: "" },
+  qwen: { format: "openai", base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen3.8-flash", thinking_type: "", reasoning_effort: "low", max_tokens_field: "max_completion_tokens" },
+  kimi: { format: "openai", base_url: "https://api.moonshot.ai/v1", model: "kimi-k3", thinking_type: "", reasoning_effort: "low", max_tokens_field: "max_completion_tokens" },
+  // OpenRouter lists reasoning_effort among this model's supported parameters.
+  openrouter: { format: "openai", base_url: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-v4.1-flash", thinking_type: "", reasoning_effort: "low", max_tokens_field: "" },
+};
+
+export function isCloudEconomyPreset(id: string): boolean {
+  return Object.hasOwn(CLOUD_TARGETS, id);
+}
 
 export function isOllamaPreset(id: string): boolean {
   return Object.hasOwn(OLLAMA_TARGETS, id);
@@ -71,21 +111,25 @@ export function getLLMProfilePreset(id: string): Readonly<LLMProfilePresetFields
       llm_max_concurrent: 1,
     };
   }
+  if (isCloudEconomyPreset(id)) {
+    return { ...CLOUD_TARGETS[id], context_window_k: 0, max_tokens: 16384 };
+  }
   return {
     format: "openai",
     model: "glm-5.3",
     base_url: id === "zai-general" ? "https://api.z.ai/api/paas/v4" : "https://api.z.ai/api/coding/paas/v4",
     thinking_type: "enabled",
-    reasoning_effort: "max",
-    context_window_k: 1000,
-    // Preserve the existing default: omit the output limit and use provider defaults.
-    max_tokens: 0,
+    // GH-24 measurement (GLM Coding Plan, 3 runs each): low effort used under half the tokens
+    // of max with the same finding. The output cap and 200K window keep large tasks bounded.
+    reasoning_effort: "low",
+    context_window_k: 0,
+    max_tokens: 16384,
     max_tokens_field: "",
   };
 }
 
 // Unknown fields, including profile names, proxies and session headers, survive unchanged.
-// GLM templates also keep entered credentials; Ollama templates clear them (see api_key above).
+// Cloud templates (GLM and economy) also keep entered credentials; Ollama templates clear them (see api_key above).
 // The original draft is not mutated, and no request or persistence occurs here.
 export function applyLLMProfilePreset<T extends object>(draft: T, id: string): T & LLMProfilePresetFields {
   return { ...draft, ...getLLMProfilePreset(id) };

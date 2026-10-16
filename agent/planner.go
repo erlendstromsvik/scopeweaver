@@ -409,7 +409,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	}
 	// Experimental noa compaction stores persistent archives under <workDir>/noa/<SessionID>.
 	noaSession := fmt.Sprintf("exp%d-planner", ts.ID())
-	secureWebSearch(&opts, p.webSearch.PolicyResolver)
+	secureWebSearch(&opts, p.webSearch.PolicyResolver, p.webSearch.DeepSeekMeter)
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: p.nativeOllamaFn != nil && p.nativeOllamaFn(), ContextWindow: p.compactionWindow()})
 	enableNoa(&opts, p.noaEnabledFn, p.workDir, noaSession, noaWarn(noaSession))
 	// Situation data (completed intents and full graph) goes in this round's user input,

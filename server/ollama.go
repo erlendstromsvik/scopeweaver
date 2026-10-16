@@ -91,7 +91,7 @@ func (s *Server) saveLLMPolicy(on *bool, cidrs *[]string) error {
 	return nil
 }
 func ollamaOptions(cfg agent.Config) ollama.Options {
-	return ollama.Options{ContextWindow: cfg.CompactionWindow(), KeepAlive: cfg.KeepAlive, ThinkingType: cfg.ThinkingType, MaxTokens: cfg.MaxTokens, JSON: cfg.JSONOutput}
+	return ollama.Options{ContextWindow: cfg.CompactionWindow(), KeepAlive: cfg.KeepAlive, ThinkingType: cfg.ThinkingType, MaxTokens: cfg.MaxTokens, JSON: cfg.JSONOutput, Schema: cfg.JSONSchema}
 }
 func ollamaClient(cfg agent.Config) (*ollama.Client, error) {
 	client, err := cfg.HTTPClient()
@@ -153,6 +153,7 @@ func (s *Server) testOllama(w http.ResponseWriter, r *http.Request, cfg agent.Co
 	out := map[string]any{}
 	_ = json.Unmarshal(raw, &out)
 	out["ok"], out["latency_ms"] = err == nil, time.Since(start).Milliseconds()
+	out["judge_model_mismatch"] = s.nativeJudgeMismatch(cfg)
 	if err != nil {
 		out["error"] = locale.ErrorMessage(responseLanguage(w), err)
 	}
@@ -161,31 +162,79 @@ func (s *Server) testOllama(w http.ResponseWriter, r *http.Request, cfg agent.Co
 }
 
 // A native endpoint has one admission gate even when several profiles select it.
-type endpointGate struct {
-	mu            sync.Mutex
-	limit, active int
-	changed       chan struct{}
+type nativeRoleKey struct{}
+
+func withNativeRole(ctx context.Context, role string) context.Context {
+	return context.WithValue(ctx, nativeRoleKey{}, role)
+}
+func nativeUrgent(ctx context.Context) bool {
+	role, _ := ctx.Value(nativeRoleKey{}).(string)
+	return role == "judge" || role == "mainagent" || role == "sidequestion"
 }
 
-func (g *endpointGate) acquire(ctx context.Context) (func(), error) {
-	for {
-		g.mu.Lock()
-		if g.active < g.limit {
-			g.active++
-			g.mu.Unlock()
-			var once sync.Once
-			return func() {
-				once.Do(func() { g.mu.Lock(); g.active--; close(g.changed); g.changed = make(chan struct{}); g.mu.Unlock() })
-			}, nil
+type endpointWaiter struct {
+	ready   chan struct{}
+	granted bool
+}
+type endpointGate struct {
+	mu                 sync.Mutex
+	limit, active      int
+	urgent, background []*endpointWaiter
+}
+
+// dispatch grants under the same lock as cancellation and limit changes. New
+// arrivals join their FIFO lane, so they cannot race an already queued caller.
+func (g *endpointGate) dispatch() {
+	for g.active < g.limit && (len(g.urgent) > 0 || len(g.background) > 0) {
+		queue := &g.urgent
+		if len(*queue) == 0 {
+			queue = &g.background
 		}
-		ch := g.changed
-		g.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ch:
-		}
+		w := (*queue)[0]
+		*queue = (*queue)[1:]
+		w.granted = true
+		g.active++
+		close(w.ready)
 	}
+}
+func (g *endpointGate) acquire(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	w := &endpointWaiter{ready: make(chan struct{})}
+	g.mu.Lock()
+	if nativeUrgent(ctx) {
+		g.urgent = append(g.urgent, w)
+	} else {
+		g.background = append(g.background, w)
+	}
+	g.dispatch()
+	g.mu.Unlock()
+	select {
+	case <-w.ready:
+	case <-ctx.Done():
+	}
+	g.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		if w.granted {
+			g.active--
+		} else {
+			for _, queue := range []*[]*endpointWaiter{&g.urgent, &g.background} {
+				for i, v := range *queue {
+					if v == w {
+						*queue = append((*queue)[:i], (*queue)[i+1:]...)
+						break
+					}
+				}
+			}
+		}
+		g.dispatch()
+		g.mu.Unlock()
+		return nil, err
+	}
+	g.mu.Unlock()
+	var once sync.Once
+	return func() { once.Do(func() { g.mu.Lock(); g.active--; g.dispatch(); g.mu.Unlock() }) }, nil
 }
 
 var nativeGates = struct {
@@ -206,7 +255,7 @@ func nativeEndpointGate(cfg agent.Config) *endpointGate {
 	defer nativeGates.Unlock()
 	g := nativeGates.gates[key]
 	if g == nil {
-		g = &endpointGate{limit: n, changed: make(chan struct{})}
+		g = &endpointGate{limit: n}
 		nativeGates.gates[key] = g
 	} else {
 		g.mu.Lock()
@@ -250,8 +299,7 @@ func (s *Server) nativeGate(cfg agent.Config) *endpointGate {
 		}
 		gate.mu.Lock()
 		gate.limit = limit
-		close(gate.changed)
-		gate.changed = make(chan struct{})
+		gate.dispatch()
 		gate.mu.Unlock()
 	}
 	return gate
@@ -391,4 +439,22 @@ func (s *Server) prepareTaskOllama(ctx context.Context, t *Task) bool {
 		}
 	}
 	return true
+}
+
+// Only an explicit native judge on the same server can add avoidable model or
+// context reload pressure. This is advisory, never a residency guarantee.
+func (s *Server) nativeJudgeMismatch(cfg agent.Config) bool {
+	if s == nil || s.m == nil || s.m.pg == nil {
+		return false
+	}
+	raw, _, err := s.m.pg.GetSetting("llm_judge_profile_id")
+	if err != nil {
+		return false
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return false
+	}
+	judge, ok := s.loadProfileConfig(id)
+	return ok && judge.Provider() == "ollama" && nativeEndpointKey(judge) == nativeEndpointKey(cfg) && (strings.TrimSuffix(judge.Model, ":latest") != strings.TrimSuffix(cfg.Model, ":latest") || judge.CompactionWindow() != cfg.CompactionWindow())
 }

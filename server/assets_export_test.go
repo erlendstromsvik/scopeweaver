@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/dbtest"
 )
 
 // exportHTTPFixture inserts a company-attributed asset set and returns the
 // handler under test plus the inserted ids and the company id.
 func exportHTTPFixture(t *testing.T) (s *Server, ids []int64, companyID int64) {
 	t.Helper()
+	dbtest.DSN(t)
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v)", err)

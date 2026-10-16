@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyLLMProfilePreset, getLLMProfilePreset, isOllamaPreset, selectInstalledOllamaModel, LLM_PROFILE_PRESET_IDS } from "./llm-profile-presets.ts";
 
-test("GLM templates distinguish billing endpoints and use documented model settings", () => {
+test("GLM templates distinguish billing endpoints and use the measured economy settings", () => {
   const general = getLLMProfilePreset("zai-general");
   const coding = getLLMProfilePreset("zai-coding-reference");
   assert.equal(general.base_url, "https://api.z.ai/api/paas/v4");
@@ -11,13 +11,57 @@ test("GLM templates distinguish billing endpoints and use documented model setti
     assert.equal(preset.format, "openai");
     assert.equal(preset.model, "glm-5.3");
     assert.equal(preset.thinking_type, "enabled");
-    assert.equal(preset.reasoning_effort, "max");
-    assert.equal(preset.context_window_k, 1000);
-    assert.equal(preset.max_tokens, 0);
+    // GH-24: effort low, output 16384 and the 200K default window cut tokens per task with
+    // the same findings in GLM Coding Plan runs (3 runs each).
+    assert.equal(preset.reasoning_effort, "low");
+    assert.equal(preset.context_window_k, 0);
+    assert.equal(preset.max_tokens, 16384);
     assert.equal(preset.max_tokens_field, "");
     assert.equal("api_key" in preset, false, "GLM templates never touch credentials");
     assert.equal("keep_alive" in preset, false);
     assert.equal("llm_max_concurrent" in preset, false);
+  }
+});
+
+test("cloud economy templates fill the documented endpoint, model and opt-in output settings", () => {
+  // [format, base_url, model, thinking_type, reasoning_effort, max_tokens_field]; every cloud economy template caps output at 16384 and keeps the 200K compaction default.
+  const expected = {
+    deepseek: ["openai", "https://api.deepseek.com", "deepseek-flash", "", "low", ""],
+    claude: ["anthropic", "https://api.anthropic.com", "claude-haiku-5-5", "disabled", "low", ""],
+    openai: ["openai-responses", "https://api.openai.com/v1", "gpt-6-luna", "", "low", ""],
+    qwen: ["openai", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.8-flash", "", "low", "max_completion_tokens"],
+    kimi: ["openai", "https://api.moonshot.ai/v1", "kimi-k3", "", "low", "max_completion_tokens"],
+    openrouter: ["openai", "https://openrouter.ai/api/v1", "deepseek/deepseek-v4.1-flash", "", "low", ""],
+  };
+  for (const [id, [format, baseURL, model, thinking, effort, field]] of Object.entries(expected)) {
+    assert.ok(LLM_PROFILE_PRESET_IDS.includes(id), id);
+    assert.equal(isOllamaPreset(id), false, id);
+    assert.deepEqual(getLLMProfilePreset(id), {
+      format,
+      base_url: baseURL,
+      model,
+      thinking_type: thinking,
+      reasoning_effort: effort,
+      context_window_k: 0,
+      max_tokens: 16384,
+      max_tokens_field: field,
+    }, id);
+  }
+});
+
+test("cloud economy templates keep the entered key and preferences, and switching between them changes only template fields", () => {
+  const draft = Object.freeze({ name: "Economy", api_key: "user-entered-key", proxy: "http://proxy:8080", session_header_key: "x-session", streaming: false, rate_per_minute: 7 });
+  let previous = draft;
+  for (const id of ["deepseek", "claude", "openai", "qwen", "kimi", "openrouter", "zai-general", "deepseek"]) {
+    const next = applyLLMProfilePreset(previous, id);
+    for (const key of Object.keys(draft)) assert.equal(next[key], draft[key], `${id} keeps ${key}`);
+    assert.deepEqual({ ...next }, { ...draft, ...getLLMProfilePreset(id) }, `${id} leaves no fields from the previous template`);
+    previous = next;
+  }
+  assert.equal(draft.api_key, "user-entered-key", "the original draft is not mutated");
+  for (const id of ["deepseek", "claude", "openai", "qwen", "kimi", "openrouter"]) {
+    const preset = getLLMProfilePreset(id);
+    for (const key of ["api_key", "keep_alive", "llm_max_concurrent"]) assert.equal(key in preset, false, `${id} never sets ${key}`);
   }
 });
 
@@ -75,7 +119,7 @@ test("switching from an Ollama template back to GLM restores the cloud format wi
 
 test("unsupported template IDs fail explicitly without changing the draft", () => {
   const draft = { api_key: "keep", model: "keep-model" };
-  for (const id of ["", "glm-unknown", "__proto__", "zai-general-extra", "ollama", "ollama-host-extra", "constructor", "toString"]) {
+  for (const id of ["", "glm-unknown", "__proto__", "zai-general-extra", "ollama", "ollama-host-extra", "deepseek-flash", "Claude", "openai-responses", "constructor", "toString"]) {
     assert.throws(() => applyLLMProfilePreset(draft, id), RangeError);
     assert.deepEqual(draft, { api_key: "keep", model: "keep-model" });
   }
