@@ -333,4 +333,5 @@ func init() {
 	Register("finding ref requires a non-empty ref", "finding ref requires a non-empty ref", "finding 참조에는 비어 있지 않은 ref가 필요합니다")
 	Register("cwe ref %q must look like CWE-79", "cwe ref %q must look like CWE-79", "cwe 참조 %q는 CWE-79 형식이어야 합니다")
 	Register("owasp-top10 ref %q must look like A05:2025", "owasp-top10 ref %q must look like A05:2025", "owasp-top10 참조 %q는 A05:2025 형식이어야 합니다")
+	Register("cve ref %q must look like CVE-2024-3400", "cve ref %q must look like CVE-2024-3400", "cve 참조 %q는 CVE-2024-3400 형식이어야 합니다")
 }
