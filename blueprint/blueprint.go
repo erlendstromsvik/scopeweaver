@@ -69,6 +69,14 @@ var (
 		"openai-responses":  "openai-responses",
 		"ollama":            "ollama",
 	}
+
+	// allowedReasoningEfforts are the accepted llm.reasoning_effort values,
+	// mirroring the DB profile field (db.LLMProfile.ReasoningEffort: empty
+	// omits it; low/medium/high/xhigh/max select intensity).
+	allowedReasoningEfforts = []string{"", "low", "medium", "high", "xhigh", "max"}
+
+	// allowedLLMPool are the accepted runtime.llm_pool modes; "" means off.
+	allowedLLMPool = []string{"", "off", "failover", "spread"}
 )
 
 // ProviderFormat returns the database wire format for a blueprint llm.provider
@@ -103,7 +111,10 @@ type Blueprint struct {
 	Task          Task           `yaml:"task"`
 	Runtime       Runtime        `yaml:"runtime"`
 	LLM           LLM            `yaml:"llm"`
-	Admin         Admin          `yaml:"admin"`
+	// LLMExtra declares additional LLMs (D.7b) that provisioning saves as
+	// extra profiles so the instance can alternate requests across them.
+	LLMExtra []ExtraLLM `yaml:"llm_extra"`
+	Admin    Admin      `yaml:"admin"`
 	// Standards names test profiles (see standards/profiles.yaml) whose
 	// requirements provisioning seeds as not_tested control results so
 	// coverage is visible from the first boot (E.4). Optional; each name
@@ -158,6 +169,9 @@ type Runtime struct {
 	Workers          int  `yaml:"workers"`
 	LLMMaxConcurrent int  `yaml:"llm_max_concurrent"`
 	WebSearchEnabled bool `yaml:"web_search_enabled"`
+	// LLMPool selects the failover-pool mode for this instance: "" (= off),
+	// "failover" or "spread". See settings llm_pool_enabled / llm_pool_spread.
+	LLMPool string `yaml:"llm_pool"`
 }
 
 // LLM binds the instance to a local, OpenAI-compatible model.
@@ -167,6 +181,20 @@ type LLM struct {
 	BaseURL   string `yaml:"base_url"`
 	APIKey    string `yaml:"api_key"` // optional for provider ollama; otherwise a secret ref
 	MaxTokens int    `yaml:"max_tokens"`
+	// ReasoningEffort selects reasoning intensity: "" (default, omitted),
+	// low, medium, high, xhigh or max — the same values a DB profile accepts.
+	ReasoningEffort string `yaml:"reasoning_effort"`
+	// MaxConcurrent caps this profile's in-flight LLM requests; 0 = the global
+	// llm_max_concurrent setting.
+	MaxConcurrent int `yaml:"max_concurrent"`
+}
+
+// ExtraLLM is one additional LLM declared under `llm_extra:`. It carries the
+// same fields as the main `llm` block plus a required unique name. The name
+// must differ from the blueprint name, which is the main profile's name.
+type ExtraLLM struct {
+	Name string `yaml:"name"`
+	LLM  `yaml:",inline"`
 }
 
 // Admin holds the instance admin credentials. Password must be a secret ref.
@@ -301,34 +329,36 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 	if bp.Runtime.LLMMaxConcurrent < 1 {
 		add("runtime.llm_max_concurrent: must be >= 1 (got %d)", bp.Runtime.LLMMaxConcurrent)
 	}
-
-	// llm
-	if strings.TrimSpace(bp.LLM.Provider) == "" {
-		add("llm.provider: required")
-	} else if _, ok := ProviderFormat(bp.LLM.Provider); !ok {
-		add("llm.provider: unknown provider %q; allowed: %s", bp.LLM.Provider, allowedProvidersList())
-	}
-	if strings.TrimSpace(bp.LLM.Model) == "" {
-		add("llm.model: required")
-	}
-	if strings.TrimSpace(bp.LLM.BaseURL) == "" {
-		add("llm.base_url: required")
-	}
-	if bp.LLM.MaxTokens < 0 {
-		add("llm.max_tokens: must be >= 0 (got %d)", bp.LLM.MaxTokens)
+	if !oneOf(bp.Runtime.LLMPool, allowedLLMPool) {
+		add("runtime.llm_pool: must be one of off,failover,spread (got %q)", bp.Runtime.LLMPool)
 	}
 
-	// secret-ref rule: these fields must be references, never inline secrets.
-	// llm.api_key may be omitted (empty) only for provider ollama: a local
-	// Ollama needs no key (agent/provider.go "Ready allows keyless native
-	// Ollama"). Every other provider must supply a secret ref.
-	if strings.TrimSpace(bp.LLM.APIKey) == "" {
-		if bp.LLM.Provider != "ollama" {
-			add("llm.api_key: required for provider %q (only ollama may omit it)", bp.LLM.Provider)
+	// llm — the main profile's binding.
+	validateLLM(add, "llm", bp.LLM)
+
+	// llm_extra — additional LLMs (D.7b). Each entry gets the same field
+	// checks as `llm`, plus a required, unique name that differs from the
+	// blueprint name (the main profile's name).
+	seen := map[string]bool{}
+	for i, ex := range bp.LLMExtra {
+		field := fmt.Sprintf("llm_extra[%d]", i)
+		n := strings.TrimSpace(ex.Name)
+		switch {
+		case n == "":
+			add("%s.name: required", field)
+		case !nameRe.MatchString(n):
+			add("%s.name: %q must match %s", field, ex.Name, nameRe.String())
+		case n == bp.Name:
+			add("%s.name: %q is the main profile's name; pick a different name", field, n)
+		case seen[n]:
+			add("%s.name: duplicate extra LLM name %q", field, n)
+		default:
+			seen[n] = true
 		}
-	} else if !secretRefRe.MatchString(bp.LLM.APIKey) {
-		add("llm.api_key: inline secret not allowed; use ${env:VAR} or ${file:/path}")
+		validateLLM(add, field, ex.LLM)
 	}
+
+	// admin.password must be a reference, never an inline secret.
 	if !secretRefRe.MatchString(bp.Admin.Password) {
 		add("admin.password: inline secret not allowed; use ${env:VAR} or ${file:/path}")
 	}
@@ -353,6 +383,54 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 		return warnings, &ValidationError{Problems: problems}
 	}
 	return warnings, nil
+}
+
+// validateLLM checks one LLM block (the main `llm` or an `llm_extra` entry)
+// against the schema, recording problems via add with the given field prefix
+// (e.g. "llm" or "llm_extra[1]"). The secret-ref rule applies here too:
+// api_key may be empty only for provider ollama.
+func validateLLM(add func(string, ...any), prefix string, l LLM) {
+	if strings.TrimSpace(l.Provider) == "" {
+		add("%s.provider: required", prefix)
+	} else if _, ok := ProviderFormat(l.Provider); !ok {
+		add("%s.provider: unknown provider %q; allowed: %s", prefix, l.Provider, allowedProvidersList())
+	}
+	if strings.TrimSpace(l.Model) == "" {
+		add("%s.model: required", prefix)
+	}
+	if strings.TrimSpace(l.BaseURL) == "" {
+		add("%s.base_url: required", prefix)
+	}
+	if l.MaxTokens < 0 {
+		add("%s.max_tokens: must be >= 0 (got %d)", prefix, l.MaxTokens)
+	}
+	if !oneOf(l.ReasoningEffort, allowedReasoningEfforts) {
+		add("%s.reasoning_effort: must be one of low,medium,high,xhigh,max (got %q)", prefix, l.ReasoningEffort)
+	}
+	if l.MaxConcurrent < 0 {
+		add("%s.max_concurrent: must be >= 0 (got %d)", prefix, l.MaxConcurrent)
+	}
+	// Secret-ref rule: api_key must be a reference, never an inline secret.
+	// It may be omitted (empty) only for provider ollama: a local Ollama
+	// needs no key (agent/provider.go "Ready allows keyless native Ollama").
+	// Every other provider must supply a secret ref.
+	if strings.TrimSpace(l.APIKey) == "" {
+		if l.Provider != "ollama" {
+			add("%s.api_key: required for provider %q (only ollama may omit it)", prefix, l.Provider)
+		}
+	} else if !secretRefRe.MatchString(l.APIKey) {
+		add("%s.api_key: inline secret not allowed; use ${env:VAR} or ${file:/path}", prefix)
+	}
+}
+
+// oneOf reports whether v is a member of allowed.
+func oneOf(v string, allowed []string) bool {
+	for _, a := range allowed {
+		if v == a {
+			return true
+		}
+	}
+	return false
 }
 
 // parseDate parses a YYYY-MM-DD date, recording a problem via add if it is

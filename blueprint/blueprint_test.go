@@ -234,6 +234,177 @@ func TestParseMalformedYAML(t *testing.T) {
 	}
 }
 
+// TestLLMExtraValid checks a two-LLM blueprint (main + one extra) validates
+// clean and the extra's fields parse, including reasoning_effort and
+// max_concurrent.
+func TestLLMExtraValid(t *testing.T) {
+	bp, warnings, err := Parse([]byte(twoLLMYAML()))
+	if err != nil {
+		t.Fatalf("two-LLM blueprint: unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("two-LLM blueprint: unexpected warnings: %v", warnings)
+	}
+	if len(bp.LLMExtra) != 1 {
+		t.Fatalf("len(LLMExtra) = %d, want 1", len(bp.LLMExtra))
+	}
+	ex := bp.LLMExtra[0]
+	if ex.Name != "spark" {
+		t.Errorf("extra name = %q, want %q", ex.Name, "spark")
+	}
+	if ex.Provider != "openai-compatible" || ex.Model != "spark-llm" {
+		t.Errorf("extra provider/model = %q/%q", ex.Provider, ex.Model)
+	}
+	if ex.ReasoningEffort != "xhigh" {
+		t.Errorf("extra reasoning_effort = %q, want xhigh", ex.ReasoningEffort)
+	}
+	if ex.MaxConcurrent != 3 {
+		t.Errorf("extra max_concurrent = %d, want 3", ex.MaxConcurrent)
+	}
+	if bp.Runtime.LLMPool != "spread" {
+		t.Errorf("runtime.llm_pool = %q, want spread", bp.Runtime.LLMPool)
+	}
+}
+
+// TestLLMExtraInvalid is the table-driven core for the D.7b extra-LLM rules:
+// each input must produce a *ValidationError naming the offending field.
+func TestLLMExtraInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{"empty name", withLLMExtra(twoLLMYAML(), `
+llm_extra:
+  - name: ""
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+`), []string{"llm_extra[0].name: required"}},
+		{"duplicate name", withLLMExtra(twoLLMYAML(), `
+llm_extra:
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm-2
+    base_url: http://spark2:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark2}
+`), []string{`llm_extra[1].name: duplicate extra LLM name "spark"`}},
+		{"name equals blueprint name", withLLMExtra(twoLLMYAML(), `
+llm_extra:
+  - name: example-com
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+`), []string{"is the main profile's name"}},
+		{"bad reasoning_effort", withLLMExtra(twoLLMYAML(), `
+llm_extra:
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+    reasoning_effort: ultra
+`), []string{`llm_extra[0].reasoning_effort: must be one of low,medium,high,xhigh,max (got "ultra")`}},
+		{"unknown provider", withLLMExtra(twoLLMYAML(), `
+llm_extra:
+  - name: spark
+    provider: gemini
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+`), []string{`llm_extra[0].provider: unknown provider "gemini"`}},
+		{"bad runtime.llm_pool", `
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe"
+  reference: "ENG-1"
+  window: { start: 2026-10-20, end: 2026-10-24 }
+company: { name: Example Corp }
+scope: [ { kind: domain, value: example.com } ]
+constraints: [ { kind: allow, text: only example.com } ]
+task: { goal: map, timeout_seconds: 3600 }
+runtime: { workers: 2, llm_max_concurrent: 2, llm_pool: roundrobin }
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${file:/run/secrets/llm_api_key}
+admin: { username: ARTEX, password: "${file:/run/secrets/sw_admin_password}" }
+`, []string{`runtime.llm_pool: must be one of off,failover,spread (got "roundrobin")`}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := Parse([]byte(tc.yaml))
+			if err == nil {
+				t.Fatalf("expected a validation error, got nil")
+			}
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("error is %T, want *ValidationError", err)
+			}
+			for _, sub := range tc.want {
+				if !strings.Contains(err.Error(), sub) {
+					t.Errorf("error does not mention %q\nfull error:\n%s", sub, err)
+				}
+			}
+		})
+	}
+}
+
+// twoLLMYAML returns a minimal valid blueprint with one extra LLM named
+// "spark" and runtime.llm_pool: spread.
+func twoLLMYAML() string {
+	return `
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe"
+  reference: "ENG-1"
+  window: { start: 2026-10-20, end: 2026-10-24 }
+company: { name: Example Corp }
+scope: [ { kind: domain, value: example.com } ]
+constraints: [ { kind: allow, text: only example.com } ]
+task: { goal: map, timeout_seconds: 3600 }
+runtime: { workers: 2, llm_max_concurrent: 2, llm_pool: spread }
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${file:/run/secrets/llm_api_key}
+  reasoning_effort: xhigh
+llm_extra:
+  - name: spark
+    provider: openai-compatible
+    model: spark-llm
+    base_url: http://spark:8080/v1
+    api_key: ${file:/run/secrets/llm_api_key_spark}
+    reasoning_effort: xhigh
+    max_concurrent: 3
+admin: { username: ARTEX, password: "${file:/run/secrets/sw_admin_password}" }
+`
+}
+
+// withLLMExtra strips the trailing `llm_extra:` block (and everything up to
+// `admin:`) from a blueprint and appends the given replacement block before
+// the admin section.
+func withLLMExtra(base, extra string) string {
+	i := strings.Index(base, "\nllm_extra:")
+	j := strings.Index(base, "\nadmin:")
+	if i < 0 || j < 0 || j <= i {
+		panic("twoLLMYAML shape changed; update withLLMExtra")
+	}
+	return base[:i] + extra + base[j:]
+}
+
 func containsSubstr(list []string, want string) bool {
 	for _, s := range list {
 		if strings.Contains(s, want) {
