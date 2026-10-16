@@ -50,10 +50,27 @@ ADMIN_USER="ARTEX"
 
 # run <cmd...> — echo, then execute unless --dry-run was given.
 run() {
-	printf '[dry-run] %s\n' "$*" >&2
-	if [ "$DRY_RUN" -eq 0 ]; then
-		"$@"
+	if [ "$DRY_RUN" -ne 0 ]; then
+		printf '[dry-run] %s\n' "$*" >&2
+		return 0
 	fi
+	printf '+ %s\n' "$*" >&2
+	"$@"
+}
+
+# compose ID ARGS... — `docker compose` for one instance with the environment
+# the compose template interpolates. Every subcommand (up, down, port, config)
+# re-parses the file, so the required vars must be set on ALL of them, not just
+# `up` — otherwise down/status/report fail with "SW_INSTANCE_DIR is required".
+# down/port/config don't bind-mount the deliverables dir, so a placeholder is
+# fine there; `up` passes the real one via SW_DELIVERABLES.
+compose() {
+	local id="$1"; shift
+	SW_IMAGE="${SW_IMAGE:-scopeweaver:local}" \
+		SW_INSTANCE_ID="$id" \
+		SW_INSTANCE_DIR="${SW_INSTANCE_DIR:-$(instance_dir "$id")}" \
+		SW_DELIVERABLES="${SW_DELIVERABLES:-$(instance_dir "$id")}" \
+		docker compose -p "$id" -f "$COMPOSE_FILE" "$@"
 }
 
 die() {
@@ -89,7 +106,7 @@ require_id() {
 # instance_url ID — the loopback URL the app's 8787 is published on.
 instance_url() {
 	local out
-	out="$(docker compose -p "$1" -f "$COMPOSE_FILE" port app 8787 2>/dev/null | head -n1)"
+	out="$(compose "$1" port app 8787 2>/dev/null | head -n1)"
 	[ -n "$out" ] || die "could not resolve the host port for instance $1 (is it running?)"
 	printf 'http://%s' "$out"
 }
@@ -203,8 +220,7 @@ cmd_launch() {
 		printf 'note: advisory/cmd/advisory-sync not present on this branch; skipping the pre-launch advisory sync\n' >&2
 	fi
 
-	SW_IMAGE="$SW_IMAGE" SW_INSTANCE_ID="$id" SW_INSTANCE_DIR="$dir" SW_DELIVERABLES="$deliverables" \
-		run docker compose -p "$id" -f "$COMPOSE_FILE" up -d
+	SW_INSTANCE_DIR="$dir" SW_DELIVERABLES="$deliverables" run compose "$id" up -d
 
 	printf 'instance:  %s\n' "$id"
 	if [ "$DRY_RUN" -eq 0 ]; then
@@ -260,7 +276,7 @@ cmd_destroy() {
 	require_id "$id"
 	local dir
 	dir="$(instance_dir "$id")"
-	run docker compose -p "$id" -f "$COMPOSE_FILE" down -v --remove-orphans
+	run compose "$id" down -v --remove-orphans
 	# The instance dir holds the generated secrets; the deliverables dir does
 	# not live under it, so it survives (D4: kept until deleted by hand).
 	run rm -rf "$dir"
