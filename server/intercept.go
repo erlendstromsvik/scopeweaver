@@ -69,6 +69,7 @@ func (s *Server) wireInterceptReviewer() {
 				return intercept.Decision{ProfileID: profileID}, err
 			}
 			if p, _ := s.m.pg.ProfileByID(profileID); p != nil {
+				prov = loggedProvider(prov, p.Name, cfg.BaseURL)
 				prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
 			}
 			prov = s.profileConcurrencyProvider(prov, cfg)

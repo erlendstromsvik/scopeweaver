@@ -489,6 +489,7 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 		s.cfgMu.Lock()
 		profName := s.llmProf
 		s.cfgMu.Unlock()
+		prov = loggedProvider(prov, profName, cfg.BaseURL)
 		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
 		prov = bindSideProvider(prov, cfg, 0, profName)
 		// Process-wide in-flight cap (llm_max_concurrent); no-op when unset.
@@ -626,10 +627,15 @@ func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool)
 		log.Printf("[engine] build provider for LLM profile %d failed: %v", id, err)
 		return nil, agent.Config{}, false
 	}
-	// Wrap with recorder, tagged with this profile's name.
+	// The request logger sits innermost (D.10): every attempt — pool failover,
+	// same-provider retry, recorder — passes through it, so each emits its own
+	// [llmreq] line. Wrap with recorder, tagged with this profile's name.
 	if p, _ := s.m.pg.ProfileByID(id); p != nil {
+		prov = loggedProvider(prov, p.Name, cfg.BaseURL)
 		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
 		prov = bindSideProvider(prov, cfg, id, p.Name)
+	} else {
+		prov = loggedProvider(prov, "", cfg.BaseURL)
 	}
 	// Process-wide in-flight cap (llm_max_concurrent); no-op when unset.
 	prov = s.profileConcurrencyProvider(prov, cfg)
