@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/locale"
+	"github.com/Autumn-27/norma/transcript"
 	"io"
 	"io/fs"
 	"log"
@@ -90,7 +92,7 @@ func taskArchivePath(dataDir string, archiveID int64, taskID string) string {
 	return filepath.Join(taskArchiveRoot(dataDir), fmt.Sprintf("task-%s-%d.tar.zst", taskID, archiveID))
 }
 
-func stageTaskArchiveFiles(dataDir string, archiveID int64, taskID string, explorationID int64) (*taskArchiveFileStage, error) {
+func stageTaskArchiveFiles(dataDir string, archiveID int64, taskID string, explorationID int64, revisions ...chatstate.TranscriptRevision) (*taskArchiveFileStage, error) {
 	root := filepath.Join(taskArchiveRoot(dataDir), ".staging", strconv.FormatInt(archiveID, 10))
 	stage := &taskArchiveFileStage{root: root, payload: filepath.Join(root, "payload")}
 	journalPath := filepath.Join(root, "journal.json")
@@ -138,6 +140,14 @@ func stageTaskArchiveFiles(dataDir string, archiveID int64, taskID string, explo
 		targets = append(targets, archiveFileMove{
 			Source: filepath.Join(transcriptDir, name), Relative: filepath.Join("files", "transcripts", name),
 		})
+	}
+	for _, revision := range revisions {
+		if err := chatstate.ValidateTranscriptPrefix(transcript.NewStore(transcriptDir), revision); err != nil {
+			return nil, err
+		}
+		for _, name := range []string{revision.TranscriptID + ".jsonl", revision.TranscriptID + ".jsonl.manifest.json"} {
+			targets = append(targets, archiveFileMove{Source: filepath.Join(transcriptDir, name), Relative: filepath.Join("files", "transcripts", name)})
+		}
 	}
 	// Persist the complete plan before the first rename. Recovery can therefore
 	// roll back any prefix of the moves after an abrupt process termination.

@@ -6,10 +6,11 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { chromium, request } from "playwright";
+import { runChatPasteChecks } from "./chat-paste.mjs";
 import { runOllamaProfileChecks } from "./ollama-profiles.mjs";
 
 const base = process.env.SCOPEWEAVER_URL || "http://127.0.0.1:8787";
-const dsn = new URL(process.env.ARTEX_PG_DSN || "");
+const dsn = new URL((process.env.ARTEX_PG_DSN || "").replace("@/", "@localhost/"));
 const dbName = dsn.pathname.slice(1);
 if (!dbName.startsWith("scopeweaver_test_")) throw new Error(`refusing to use non-test database "${dbName}"`);
 const out = process.env.E2E_OUT || "e2e-results";
@@ -260,6 +261,8 @@ for (const locale of ["en", "ko", "zh-Hans"]) {
 
 // 5. Native Ollama templates, keyless save/activate and the opt-in local-only policy (fixture endpoint).
 await runOllamaProfileChecks({ base, token, step, check, openPage, out });
+
+await runChatPasteChecks({ base, token, step, check, openPage });
 
 await step("no uncaught page errors", async () => check(pageErrors.length === 0, pageErrors.join(" | ")));
 

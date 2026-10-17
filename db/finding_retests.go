@@ -258,7 +258,15 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 	return tx.Commit()
 }
 
+// Preserve work durably accepted but never claimed. Interrupted executions and
+// legacy pending rows still seal, while the common dispatcher can start these
+// queued retests after restart/Resume without losing their lifecycle identity.
 func (d *DB) RecoverFindingRetests() error {
-	_, err := d.Exec(`UPDATE finding_retests SET status='stopped', error=$1, finished_at=now() WHERE status IN ('pending','running')`, locale.Text(locale.ServerDefault(), "Service restarted; retest interrupted. Start a new retest"))
+	_, err := d.Exec(`UPDATE finding_retests SET status='stopped', error=$1, finished_at=now() WHERE status IN ('pending','running')
+ AND NOT (status='pending' AND EXISTS (
+ SELECT 1 FROM chat_control_inputs i JOIN chat_control_sessions s ON s.session_key=i.session_key
+ WHERE s.conversation_id=finding_retests.conversation_id AND i.source_kind='external' AND i.status='queued'
+ AND NOT EXISTS (SELECT 1 FROM chat_control_runs r WHERE r.input_id=i.id)
+ ))`, locale.Text(locale.ServerDefault(), "Service restarted; retest interrupted. Start a new retest"))
 	return err
 }

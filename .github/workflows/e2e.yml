@@ -1,10 +1,11 @@
 name: e2e
 # Essential browser smoke test against the real embedded binary. Runs alongside `checks`
-# before merge (pull_request) and after merge (push to main); it never runs on local commits.
+# before merge and after integration into dev or promotion to main.
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 permissions:
   contents: read

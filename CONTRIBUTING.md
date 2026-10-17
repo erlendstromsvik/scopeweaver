@@ -82,8 +82,15 @@ Describe in the PR what you ran and anything you could not run.
 
 ## Review and merging
 
-1. CI must pass: the `frontend`, `agent-adapter`, and `backend` checks and the `e2e` smoke test. For
-   first-time contributors, the maintainer approves the CI run.
+Create each `feat/*` or `fix/*` branch from the latest `dev`, and open its PR against `dev`.
+After integration, wait for all checks and E2E on that exact `dev` commit, then open a promotion
+PR from this repository's `dev` to `main`. Keep promotion history with a merge commit so `dev`
+remains an ancestor of `main`. Verify the checks again after promotion; start subsequent work
+from `dev`. The `branch-policy` check rejects other PR routes.
+
+1. All required checks must pass on the current candidate: `branch-policy`, `frontend`,
+   `agent-adapter`, `backend`, `windows`, `chat-browser`, and `smoke`. Both `dev` and `main` run
+   CI and E2E after merge. For first-time contributors, the maintainer approves the CI run.
 2. The PR is reviewed against its diff for correctness, security, complete shipped translations, and English/Korean documentation parity.
 3. **The maintainer performs a final human check of every PR before merging.** Nothing is merged
    without it.

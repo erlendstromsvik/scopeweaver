@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/Autumn-27/artex/locale"
@@ -51,7 +52,7 @@ func main() {
 	os.Exit(run())
 }
 
-func run() int {
+func run() (code int) {
 	var (
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
 		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
@@ -106,9 +107,15 @@ func run() int {
 
 	mgr, err := server.NewManager(*dataDir, *proxy)
 	if err != nil {
-		log.Fatalf("open stores: %v", err)
+		log.Printf("open stores: %v", err)
+		return 1
 	}
-	defer mgr.Close()
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			log.Printf("close stores: %v", err)
+			code = 1
+		}
+	}()
 
 	// Surviving this long means a freshly swapped-in build actually works, so drop
 	// the upgrade marker and stop counting attempts. Until it fires, every boot
@@ -146,28 +153,48 @@ func run() int {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	defer func() {
+		shutdown(agent.AbortShutdown)
+		code = shutdownServer(code, httpSrv, srv.DrainChats)
+	}()
+	served := make(chan error, 1)
 	go func() {
 		log.Printf("ScopeWeaver %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("serve: %v", err)
-		}
+		served <- httpSrv.ListenAndServe()
 	}()
 
-	// Two ways out: a signal (normal stop → exit 0, the start script stops looping)
-	// or a staged update / rollback (→ exit 75, the script relaunches us and the
-	// bootstrap above installs the new build).
-	code := 0
+	// A signal stops normally (exit 0); a staged update or rollback requests
+	// relaunch (exit 75). A serve failure exits nonzero after the same cleanup.
 	select {
 	case <-ctx.Done():
 	case <-server.RestartRequested():
 		code = selfupdate.ExitRestart
 		shutdown(agent.AbortShutdown)
+	case err := <-served:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("serve: %v", err)
+			code = 1
+		}
 	}
 
+	return code
+}
+
+func shutdownServer(code int, httpSrv *http.Server, drain func(context.Context) error) int {
 	log.Println("shutting down...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = httpSrv.Shutdown(shutdownCtx)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP shutdown: %v", err)
+		_ = httpSrv.Close()
+		code = 1
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer drainCancel()
+	if err := drain(drainCtx); err != nil {
+		log.Printf("drain background chats: %v", err)
+		code = 1
+	}
 	return code
 }
 

@@ -131,7 +131,11 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 		s.chatMu.Lock()
 		s.chatBusy[busyKey] = true
 		s.chatMu.Unlock()
-		s.runConversationWithContext(r.Context(), conv, retest.InitialMessageForLanguage(locale.FromRequest(r)), busyKey)
+		if err := s.runConversationWithContext(r.Context(), conv, retest.InitialMessageForLanguage(locale.FromRequest(r)), busyKey); err != nil {
+			_ = pg.FailPendingRetestForConversation(conv.ID, locale.ErrorMessage(locale.FromRequest(r), err))
+			writeError(w, 500, err)
+			return
+		}
 	}
 	code := http.StatusOK
 	if created {

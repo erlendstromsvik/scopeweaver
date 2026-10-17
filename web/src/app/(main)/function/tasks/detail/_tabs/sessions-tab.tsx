@@ -31,6 +31,15 @@ import {
 import { toast } from "sonner";
 
 import { ApprovalExecutionFocus, useApprovalFocus, useApprovalHistory } from "@/components/approval-execution-focus";
+import { ChatAttachmentChips } from "@/components/chat-attachment-chips";
+import { useChatControls } from "@/hooks/use-chat-controls";
+import {ChatContextInspector,type ChatContextHandle} from "@/components/chat-context-inspector";
+import { parseChatCommand } from "@/lib/chat-commands";
+import {ChatMessageActions,ChatParentLink} from "@/components/chat-message-actions";
+import type {ChatHistoryResult,ChatSessionRef} from "@/lib/types";
+import {newChatID} from "@/lib/chat-attachment-state";
+import { ChatQueue } from "@/components/chat-queue";
+import { useChatAttachments, useChatDraft } from "@/hooks/use-chat-attachments";
 import { MentionTextarea } from "@/components/mention-textarea";
 import { SideQuestionButton, SideQuestionWorkspace } from "@/components/side-question-workspace";
 import { TodoPopover } from "@/components/todo-popover";
@@ -539,7 +548,8 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const [olderIntentsHasMore, setOlderIntentsHasMore] = React.useState(false);
   const [hasLoadedOlderIntentsPage, setHasLoadedOlderIntentsPage] = React.useState(false);
   const [loadingOlderIntents, setLoadingOlderIntents] = React.useState(false);
-  const [input, setInput] = React.useState("");
+  const draftKey = `task:${taskId}:${activeId}`;
+  const [input, setInput] = useChatDraft(draftKey);
   const [sending, setSending] = React.useState(false);
   const [stopping, setStopping] = React.useState(false);
   const [mainChatRunning, setMainChatRunning] = React.useState<boolean | null>(null);
@@ -551,24 +561,11 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const [workerMessage, setWorkerMessage] = React.useState("");
   const [workerMessageRequestId, setWorkerMessageRequestId] = React.useState("");
   const [workerMessageSending, setWorkerMessageSending] = React.useState(false);
-  // Attachments saved in the task working directory's uploads/ accompany the next message.
-  const [attachments, setAttachments] = React.useState<ChatAttachment[]>([]);
-  const [uploading, setUploading] = React.useState(false);
+  const attachmentState = useChatAttachments({ draftKey, ensureOwner: async () => ({ scope: "task", id: taskId }) });
+  const attachments = attachmentState.uploaded;
+  const uploading = attachmentState.uploading;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  async function pickFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    try {
-      const r = await api.chatUpload("task", taskId, Array.from(files));
-      setAttachments((prev) => [...prev, ...r.attachments]);
-    } catch (e) {
-      toast.error(swt("interface.m0704", { p0: (e as Error).message }));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+  function pickFiles(files: FileList | null) { if (files) attachmentState.addFiles(Array.from(files)); }
 
   // Start a fresh main-agent session: only the segment counter advances — the task's
   // graph/assets/goal are untouched, so the agent continues over the same task with a
@@ -584,7 +581,6 @@ export function SessionsTab({ taskId }: { taskId: string }) {
       setStore((prev) => ({ ...prev, [mainSessionKey(r.seq)]: { ...emptyState(), loaded: true } }));
       setActiveId(mainSessionId(r.seq));
       setListOpen(false);
-      setInput("");
     } catch (e) {
       toast.error(swt("interface.m0705", { p0: (e as Error).message }));
     } finally {
@@ -676,7 +672,8 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   // Load a session's LATEST page (before=0) on first open. Keyed + request-token
   // guarded so a switch away can't corrupt the view.
   const loadSession = React.useCallback(
-    (key: string) => {
+    (key: string,replace=false) => {
+      if (replace) loadingKeysRef.current.delete(key);
       if (MOCK) return; // MOCK preloads everything up front
       if (loadingKeysRef.current.has(key)) return; // already in flight (e.g. main on mount)
       loadingKeysRef.current.add(key);
@@ -723,7 +720,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
               error: (error as Error).message || swt("interface.m0713"),
             }));
           })
-          .finally(() => loadingKeysRef.current.delete(key));
+          .finally(() => {if(reqTokenRef.current[key]===token)loadingKeysRef.current.delete(key)});
         return;
       }
 
@@ -733,7 +730,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
           if (reqTokenRef.current[key] !== token) return; // superseded
           if (r.snapshotCursor > snapshotRef.current) snapshotRef.current = r.snapshotCursor;
           patchStore(key, (s) => {
-            const items = mergeBySeq(r.items, s.items); // keep any live frames arrived meanwhile
+            const items = replace?mergeBySeq(r.items,s.items.filter(item=>item.seq>r.snapshotCursor)):mergeBySeq(r.items, s.items); // retain newer live frames
             return {
               ...s,
               items,
@@ -750,7 +747,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
           if (reqTokenRef.current[key] !== token) return;
           patchStore(key, (s) => ({ ...s, loading: false, error: (e as Error).message || swt("interface.m0713") }));
         })
-        .finally(() => loadingKeysRef.current.delete(key));
+        .finally(() => {if(reqTokenRef.current[key]===token)loadingKeysRef.current.delete(key)});
     },
     [swLocale, taskId, patchStore],
   );
@@ -1285,9 +1282,23 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   };
 
   const active = sessions.find((s) => s.id === activeId) ?? MAIN_SESSION;
+  const controls=useChatControls(active.role==="mainagent"&&!active.inherited?{conversation_id:"0",task_id:taskId,exploration_id:"0",main_seg:active.seg??0}:null);
+  const contextInspector=React.useRef<ChatContextHandle>(null);
+ const queueMode=!!(mainChatRunning||controls.state?.active||controls.state?.context_changing||controls.state?.paused||controls.state?.inputs.some(a=>a.status==="queued"));
+  const knownHistory=React.useRef<Record<string,string>>({});
+  const knownTerminal=React.useRef<Record<string,string>>({});
+  React.useEffect(()=>{
+   const revision=controls.state?.history_revision;if(revision===undefined||active.role!=="mainagent")return;
+   const key=mainSessionKey(active.seg??0);const terminal=controls.state?.latest_run_id&&controls.state.latest_run_status!=="running"?`${controls.state.latest_run_id}:${controls.state.latest_run_status}`:"";
+   if(knownHistory.current[key]!==undefined&&knownHistory.current[key]!==revision||terminal&&terminal!==knownTerminal.current[key]){reqTokenRef.current[key]=(reqTokenRef.current[key]??0)+1;patchStore(key,()=>emptyState());loadSession(key,true)}
+   knownHistory.current[key]=revision;knownTerminal.current[key]=terminal;
+  },[controls.state?.history_revision,controls.state?.latest_run_id,controls.state?.latest_run_status,active.id]);
+
+  async function navigateHistory(ref:ChatSessionRef){if(ref.task_id!==taskId)return;const sessions=await api.mainSessions(taskId);setMainSegs(sessions.sessions);setCurrentSeg(sessions.current);setActiveId(mainSessionId(ref.main_seg));loadSession(mainSessionKey(ref.main_seg),true)}
+  async function historyChanged(result:ChatHistoryResult){const key=mainSessionKey(result.session.main_seg);reqTokenRef.current[key]=(reqTokenRef.current[key]??0)+1;patchStore(key,()=>emptyState());if(result.session.main_seg!==(active.seg??0))await navigateHistory(result.session);else loadSession(key,true);if(result.run_id)setMainChatRunning(true);void controls.reload()}
   const side = useSideQuestions(
     active.role === "mainagent"
-      ? `/api/tasks/${taskId}/chat`
+      ? `/api/tasks/${taskId}/chat?seg=${active.seg??0}`
       : active.role === "worker" && !active.inherited && active.intent_id
         ? `/api/tasks/${taskId}/intents/${active.intent_id}`
         : null,
@@ -1305,7 +1316,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const activeLast = activeItems[activeItems.length - 1];
   const activeSettled =
     !!activeLast && (activeLast.kind === "result" || (activeLast.kind === "text" && activeLast.is_error));
-  const mainBusy = isMain && (sending || (!activeSettled && (mainChatRunning ?? recentLive(activeKey))));
+  const mainBusy = isMain && (!!controls.state?.active || sending || (!activeSettled && (mainChatRunning ?? recentLive(activeKey))));
   // The collapsed mobile header shows the active session name and other sessions' unread total,
   // so users retain context and awareness of new messages elsewhere.
   const activeDisplayTitle = (active.role === "worker" ? sessionMeta.get(active.id)?.title : "") || active.title;
@@ -1517,31 +1528,20 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     void api.stopChat(taskId).finally(() => setStopping(false));
   }
 
-  function send() {
-    const text = input.trim();
-    const atts = attachments;
-    if (side.handleCommand(text, () => setInput(""))) return;
-    if ((!text && atts.length === 0) || sending || mainBusy) return;
-    // No optimistic echo: the backend persists+broadcasts the human turn before it
-    // returns, so it streams back over SSE (worker="mainagent") with its real DB
-    // seq — the transcript renders it from server data like every other step. Clear
-    // the composer eagerly for responsiveness; restore it if the send fails.
-    setInput("");
-    setAttachments([]);
-    setSending(true);
-    chatStatusRequestRef.current++;
-    api
-      .chat(text, taskId, atts.length > 0 ? atts : undefined, active.seg ?? 0)
-      .then(({ mode }) => {
-        chatStatusRequestRef.current++;
-        setMainChatRunning(mode === "llm");
-      })
-      .catch((e) => {
-        setInput(text); // restore so the user doesn't lose their text / attachments
-        setAttachments(atts);
-        toast.error(swt("interface.m0714", { p0: (e as Error).message || swt("interface.m0715") }));
-      })
-      .finally(() => setSending(false));
+  async function send(explicit?:"send"|"queue"|"steer"){
+    const original=input;let text=input.trim();const atts=attachments;
+    if(side.handleCommand(text,()=>setInput("")))return;
+    const command=parseChatCommand(text);
+ if(command?.kind==="context"||command?.kind==="usage"){contextInspector.current?.open();setInput("");return}
+ if(command?.kind==="compact"){if(await contextInspector.current?.compact(command.options))setInput("");return}
+    if(command?.kind==="invalid"){toast.error(swt("interface.chatCommandInvalid"));return}
+    let mode=explicit??(queueMode?"queue":"send");
+    if(command){if(command.kind==="queue"||command.kind==="steer"){mode=command.kind;text=command.text}else if(command.kind==="retry"){if(!controls.state?.capabilities.retry){toast.error(swt("interface.chatControlUnavailable"));return}try{const result=await controls.retry(newChatID());await historyChanged(result);setInput("")}catch(error){toast.error((error as Error).message)}return}else if(command.kind==="branch"){if(!controls.state?.capabilities.branch){toast.error(swt("interface.chatControlUnavailable"));return}try{const result=await controls.branch({kind:"branch",client_request_id:newChatID(),turn_id:controls.state.latest_turn_id,title:command.title,expected_revision:controls.state.revision});await historyChanged(result);setInput("")}catch(error){toast.error((error as Error).message)}return}else{toast.error(swt("interface.chatControlUnavailable"));return}}
+    if((!text&&!atts.length)||sending||!attachmentState.canSubmit)return;
+    if(mode==="steer"&&(!controls.state?.active||attachmentState.items.length)){toast.error(swt("interface.chatControlUnavailable"));return}
+    setSending(true);chatStatusRequestRef.current++;
+    try{await controls.submit(mode,{text,attachments:atts},mode==="steer"?controls.state?.active?.id:undefined);attachmentState.clear();setInput("");chatStatusRequestRef.current++;if(mode==="send")setMainChatRunning(true)}
+    catch(error){setInput(original);toast.error((error as Error).message)}finally{setSending(false)}
   }
 
   function sendWorkerChat() {
@@ -1883,6 +1883,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
             to block so wide/unbreakable steps (long commands, code, URLs) can't blow
             out the width and defeat the truncation below — the transcript wraps to
             the panel instead of overflowing horizontally. */}
+            {isMain&&<ChatParentLink controls={controls} onNavigate={navigateHistory}/>}
             <ScrollArea type="auto" className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
               <div className="min-w-0 max-w-full p-4" ref={contentRef}>
                 {activeState?.loadingMore && (
@@ -1908,6 +1909,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                   </div>
                 ) : activity.length ? (
                   <Transcript
+                    renderActions={isMain?activity=><ChatMessageActions activity={activity} controls={controls} onChanged={historyChanged}/>:undefined}
                     activity={activity}
                     live={active.live}
                     taskId={taskId}
@@ -1923,41 +1925,23 @@ export function SessionsTab({ taskId }: { taskId: string }) {
             </ScrollArea>
             {isMain ? (
               <div className="border-t p-3">
-                {attachments.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {attachments.map((a) => (
-                      <div
-                        key={a.path}
-                        className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs"
-                        title={a.path}
-                      >
-                        <PaperclipIcon className="size-3 shrink-0 text-primary" />
-                        <span className="max-w-[160px] truncate">{a.name}</span>
-                        <span className="text-muted-foreground">{fmtBytes(a.size)}</span>
-                        <button
-                          type="button"
-                          className="ml-0.5 text-muted-foreground hover:text-foreground"
-                          onClick={() => setAttachments((p) => p.filter((x) => x.path !== a.path))}
-                          title={swt("interface.m0069")}
-                        >
-                          <XIcon className="size-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <ChatContextInspector key={active.id} ref={contextInspector} controls={controls}/>
+ <ChatQueue controls={controls}/>
+                <ChatAttachmentChips attachments={attachmentState} />
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
                   className="hidden"
-                  onChange={(e) => void pickFiles(e.target.files)}
+                  onChange={(e) => { pickFiles(e.target.files); e.target.value = ""; }}
                 />
                 <InputGroup className="min-h-9 has-disabled:opacity-100">
                   <MentionTextarea
                     inputGroup
                     rows={1}
                     aria-label={swt("interface.m0748")}
+                    data-chat-draft={draftKey}
+                    onPaste={attachmentState.onPaste}
                     placeholder={
                       mainBusy ? swt("interface.m0749") : swt("interface.m0750")
                     }
@@ -1976,42 +1960,23 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                       size="icon-xs"
                       variant="ghost"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={mainBusy || uploading}
+                      disabled={uploading || sending}
                       title={swt("interface.m0070")}
                       aria-label={swt("interface.m0070")}
                     >
                       {uploading ? <Loader2Icon className="animate-spin" /> : <PaperclipIcon />}
                     </InputGroupButton>
-                    {mainBusy && isBtwCommand(input) && (
-                      <InputGroupButton size="icon-xs" onClick={send} aria-label={swt("interface.m0071")}>
+                    {mainBusy && isBtwCommand(input) && !controls.state?.capabilities.queue && (
+                      <InputGroupButton size="icon-xs" onClick={()=>void send()} aria-label={swt("interface.m0071")}>
                         <ArrowUpIcon />
                       </InputGroupButton>
                     )}
-                    {mainBusy ? (
-                      <InputGroupButton
-                        className="ml-auto"
-                        size="icon-xs"
-                        variant="destructive"
-                        onClick={stop}
-                        disabled={stopping}
-                        title={swt("interface.m0751")}
-                        aria-label={swt("interface.m0751")}
-                      >
-                        {stopping ? <Loader2Icon className="animate-spin" /> : <SquareIcon />}
-                      </InputGroupButton>
-                    ) : (
-                      <InputGroupButton
-                        className="ml-auto"
-                        size="icon-xs"
-                        variant="default"
-                        onClick={send}
-                        disabled={(!input.trim() && attachments.length === 0) || sending}
-                        title={swt("interface.m0073")}
-                        aria-label={swt("interface.m0073")}
-                      >
-                        {sending ? <Loader2Icon className="animate-spin" /> : <ArrowUpIcon />}
-                      </InputGroupButton>
-                    )}
+                    {mainBusy&&controls.state?.capabilities.steer&&<InputGroupButton size="xs" variant="outline" onClick={()=>void send("steer")} disabled={sending||attachmentState.items.length>0||!input.trim()} title={swt("interface.chatSteerHint")}>{swt("interface.chatSteer")}</InputGroupButton>}
+                    <InputGroupButton className="ml-auto" size="xs" variant="default" onClick={()=>void send()} disabled={(!input.trim()&&!attachments.length)||sending||!attachmentState.canSubmit} aria-label={swt(queueMode?"interface.chatQueue":"interface.m0073")}>
+                      {queueMode?swt("interface.chatQueue"):<ArrowUpIcon/>}
+                    </InputGroupButton>
+                    {mainBusy&&<InputGroupButton size="icon-xs" variant="destructive" onClick={stop} disabled={stopping} aria-label={swt("interface.chatStop")}><SquareIcon/></InputGroupButton>}
+
                   </InputGroupAddon>
                 </InputGroup>
               </div>

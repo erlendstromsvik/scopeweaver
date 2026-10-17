@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/db"
 )
 
@@ -23,14 +24,7 @@ var safeChatID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // chatAttachment is one uploaded file as the frontend + agent see it. Path is relative
 // to the chat's working dir (e.g. "uploads/report.txt"), which is the agent's CWD, so
 // it can Read/Bash the file directly; Name/Size drive the UI card.
-type chatAttachment struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-	// Abs is the persisted absolute path (m.dir is already absolute). Before task creation, staging uploads use it
-	// in the frontend task description; task/session uploads use backend composeAgentMessage and do not depend on this field.
-	Abs string `json:"abs,omitempty"`
-}
+type chatAttachment = chatstate.Attachment
 
 // chatUpload implements method-1 file support: it saves one or more files into a chat's
 // working dir under uploads/, so the agent opens them with its existing Read/Bash tools

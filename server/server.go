@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/artex/llmpool"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/artex/locale"
@@ -69,13 +69,18 @@ type Server struct {
 	// immediately, so a page reload / proxy timeout can't abort a live run. This
 	// map serializes turns per task — one main-agent run at a time per task, so
 	// concurrent messages don't corrupt the shared exp<id>-main transcript.
-	chatMu   sync.Mutex
-	chatBusy map[string]bool
+	chatMu        sync.Mutex
+	chatBusy      map[string]bool
+	chatClosing   bool
+	chatWG        sync.WaitGroup
+	chatDrainDone chan struct{}
+	chatDrainErr  error
 	// chatCancel holds the cancel func for each in-flight conversation run (keyed by
 	// convBusyKey), so a manual stop can abort JUST that session's agent run. Set/
 	// cleared alongside chatBusy under chatMu. Aborting a run does NOT touch the P3
 	// trigger queue — the drain goroutine simply proceeds to the next queued fire.
-	chatCancel map[string]context.CancelCauseFunc
+	chatCancel    map[string]context.CancelCauseFunc
+	chatMutations map[string]map[string]context.CancelCauseFunc
 
 	// triggerQ buffers P3 trigger fires PER AGENT. A per-agent "pump" launches runs up
 	// to a concurrency limit derived from the agent policy: serial means limit 1 (+ optional
@@ -150,9 +155,17 @@ type triggeredRun struct {
 }
 
 func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string) *Server {
+	s, err := newServer(ctx, m, skillDir, dataDir, keyDir)
+	if err != nil {
+		log.Fatalf("[server] startup: %v", err)
+	}
+	return s
+}
+
+func newServer(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string) (*Server, error) {
 	key, err := loadOrCreateJWTKey(keyDir, dataDir)
 	if err != nil {
-		log.Fatalf("[auth] JWT key: %v", err)
+		return nil, fmt.Errorf("JWT key: %w", err)
 	}
 	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, jwtKey: key, chatBusy: map[string]bool{},
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
@@ -160,6 +173,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+	// Recovery must finish before any internal producer or task runtime starts.
+	if err := s.recoverChatControls(); err != nil {
+		return nil, fmt.Errorf("chat startup recovery: %w", err)
+	}
 	s.initSideQuestions()
 	// Circuit thresholds/cooldown are hot-path failure settings. Push the global retry policy into Registry
 	// at startup and again whenever saveLLMRetryPolicy saves changes.
@@ -227,7 +244,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // Assemble visible skills/MCP and traffic/orchestration host tools into agent toolsets.
-		domainReg := buildDomainReg(m.Assets())
+		domainReg := s.domainToolRegistry()
 		wireTools(m.pg, domainReg, s.knownToolLanguages()) // Built-in tools: filter by agent, override descriptions/schemas, and inject defaults.
 		seedPrompts(m.pg)                                  // Seed built-in agent prompt bodies into agent_prompts only when empty.
 		s.seedOrchestrationTools()                         // Seed P2 cross-task orchestration tools for per-agent bindings.
@@ -235,8 +252,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			log.Printf("[retester] seed: %v", err)
 		}
 		go s.evidenceStore().RunGC(s.ctx)
-		s.seedPythonInterpreter()     // Detect and store the Python interpreter for custom scripts at startup, only when empty.
-		go newScheduler(s).Run(s.ctx) // P3 timer/finding/goal-event trigger scheduling for custom agents only.
+		s.seedPythonInterpreter() // Detect and store the Python interpreter for custom scripts at startup, only when empty.
 		// Finding notification delivery runs independently beside Scheduler: its three-second responsiveness
 		// differs from trigger scheduling, and a stuck delivery must not block agent triggers.
 		go newNotifier(s).Run(s.ctx)
@@ -262,10 +278,16 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		log.Printf("[engine] no LLM provider configured — engine idle until set via /api/llm or env")
 	}
 	s.restoreTaskRuntimes()
+	if err := s.resumeChatControls(); err != nil {
+		log.Printf("[chat] %v", err)
+	}
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
 	s.wireInterceptReviewer() // LLM fallback approval judges commands that match no interception rule.
-	return s
+	if m.pg != nil {
+		go newScheduler(s).Run(s.ctx) // Start admissions only after recovery and task restoration.
+	}
+	return s, nil
 }
 
 // Restored deadline and worker loops must inherit the same context as new tasks,
@@ -853,6 +875,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
 	mux.HandleFunc("GET /api/report", s.getReport)
 	mux.HandleFunc("GET /api/chat/mentions", s.searchChatMentions)
+	mux.HandleFunc("/api/conversations/{id}/controls", s.chatControls)
+	mux.HandleFunc("/api/conversations/{id}/controls/{rest...}", s.chatControls)
+	mux.HandleFunc("/api/tasks/{id}/chat/controls", s.chatControls)
+	mux.HandleFunc("/api/tasks/{id}/chat/controls/{rest...}", s.chatControls)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/chat/upload", s.chatUpload) // Upload mode 1: save under the conversation/task workspace uploads directory.
 	mux.HandleFunc("GET /api/tasks/{id}/chat/status", s.taskChatStatus)
@@ -3872,106 +3898,24 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no active task")
 		return
 	}
-	if s.engine.IsDeleting(t.ID) {
-		writeErr(w, 409, locale.Text(responseLanguage(w), "Task is being deleted; new messages cannot be sent"))
-		return
-	}
-	// Pausing a task does not prohibit main-agent conversations. They are independent of planner/worker pause;
-	// pause cancels only the currently active main-agent round (see control), and later conversation may continue.
 	var req struct {
 		Message     string           `json:"message"`
-		Attachments []chatAttachment `json:"attachments,omitempty"` // Mode-1 uploaded files, with paths relative to the task workspace.
-		Seg         *int             `json:"seg,omitempty"`         // Target main-conversation segment; omitted selects the latest.
+		Attachments []chatAttachment `json:"attachments"`
+		Seg         *int             `json:"seg"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, 400, err)
+	if !decodeConversationRequest(w, r, &req) {
 		return
 	}
-	agentMessage, ok := s.prepareChatMentionMessage(w, req.Message)
-	if !ok {
+	seg, err := t.Store.CurrentMainSeg()
+	if err != nil {
+		writeError(w, 500, err)
 		return
 	}
-	// Admission is serialized with deletion's chat cancellation. Mark every chat
-	// turn busy before its first activity/file write, including rule-mode turns.
-	// If deletion wins the race, the second barrier check rejects this request.
-	s.chatMu.Lock()
-	if s.engine.IsDeleting(t.ID) {
-		s.chatMu.Unlock()
-		writeErr(w, 409, locale.Text(responseLanguage(w), "Task is being deleted; new messages cannot be sent"))
-		return
-	}
-	if s.chatBusy[t.ID] {
-		s.chatMu.Unlock()
-		writeErr(w, 409, locale.Text(responseLanguage(w), "The main agent is processing the previous message; please wait"))
-		return
-	}
-	ctx, cancel := context.WithCancelCause(backgroundLanguage(s.ctx, r.Context()))
-	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: req.Message})
-	s.chatBusy[t.ID] = true
-	s.chatCancel[t.ID] = cancel
-	s.chatMu.Unlock()
-
-	// The turn belongs to whichever main-agent segment the user is chatting in (any
-	// segment is interactive, like the top-level chat conversations). Stamp every
-	// mainagent row with it so this turn's transcript + activity land in that segment.
-	// Missing seg (older clients) falls back to the newest segment.
-	mainSeg := 0
 	if req.Seg != nil && *req.Seg >= 0 {
-		mainSeg = *req.Seg
-	} else {
-		mainSeg, _ = t.Store.CurrentMainSeg()
+		seg = *req.Seg
 	}
-	segPtr := &mainSeg
-
-	// Persist and broadcast the human turn so the main-agent orchestration session survives page
-	// reloads and updates live: the conversation lives in the activity stream as
-	// worker="mainagent" (the per-task activity table, replayed via SSE). With
-	// attachments, the activity's Detail carries {text, attachments} so the transcript
-	// renders attachment cards.
-	humanTurn := userActivityWithAttachments("mainagent", req.Message, req.Attachments)
-	humanTurn.MainSeg = segPtr
-	s.engine.emitActivity(t, humanTurn)
-	var ma *agent.MainAgent
-	if s.taskRuntimeAvailable(t, "mainagent") {
-		ma = s.agentsForTask(t).main
-	}
-	if ma != nil {
-		// Run the agent on a per-turn cancellable ctx (NOT r.Context()): the turn can
-		// take minutes (multi-tool loop), and binding it to the request lifecycle meant
-		// a page reload / proxy timeout cancelled it mid-run ("context canceled"). The
-		// steps + final answer stream back live via SSE (worker="mainagent"), so the
-		// handler returns immediately and the browser never needs to hold the request.
-		go func() {
-			defer func() {
-				s.finishTaskChat(t.ID, cancel)
-			}()
-			// emit every step (thinking/tool_use/tool_result/text/result) so the main
-			// agent session shows its work live, like worker/planner. The final answer
-			// is the captured "result" step — no separate reply emit (would duplicate).
-			emit := func(rec db.Activity) {
-				rec.MainSeg = segPtr
-				s.engine.emitActivity(t, rec)
-			}
-			maTaskID, _ := strconv.ParseInt(t.ID, 10, 64)
-			resume := func() { s.reviveTask(t) } // Adding goals through set_goals revives the task to running.
-			// Append absolute attachment paths so the agent can open uploaded files through Read/Bash.
-			// taskDir is the agent CWD, matching chatUpload storage and ensureRunDir.
-			taskDir := filepath.Join(s.m.dir, "tasks", t.ID)
-			agentMsg := composeAgentMessageForLanguage(agentMessage, req.Attachments, taskDir, locale.FromContext(ctx))
-			s.engine.BeginLLMCall(t.ID)
-			_, err := ma.Chat(ctx, maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
-			s.engine.EndLLMCall(t.ID)
-			if err != nil && ctx.Err() == nil {
-				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: locale.Text(locale.FromContext(ctx), "(Main-agent error: ") + locale.ErrorMessage(locale.FromContext(ctx), err) + ")", MainSeg: segPtr})
-			}
-		}()
-		writeJSON(w, 202, map[string]any{"status": "accepted", "mode": "llm"})
-		return
-	}
-	reply := s.fallbackChat(t, req.Message, locale.FromContext(ctx))
-	s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", Summary: reply, MainSeg: segPtr})
-	s.finishTaskChat(t.ID, cancel)
-	writeJSON(w, 200, map[string]any{"reply": reply, "mode": "rule"})
+	id, _ := strconv.ParseInt(t.ID, 10, 64)
+	s.admitCompatibilityChat(w, r, chatstate.SessionRef{TaskID: id, ExplorationID: t.ExpID, MainSeg: seg}, req.Message, req.Attachments)
 }
 
 func (s *Server) cancelTaskChat(taskID string, cause error) bool {
@@ -4016,10 +3960,12 @@ func (s *Server) stopChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "task not found")
 		return
 	}
-	if !s.cancelTaskChat(t.ID, agent.AbortChatStoppedByUser) {
-		writeJSON(w, 200, map[string]any{"status": "idle"})
+	id, _ := strconv.ParseInt(t.ID, 10, 64)
+	if err := s.m.pg.PauseChatGate(r.Context(), chatstate.SessionRef{TaskID: id, ExplorationID: t.ExpID}, -1); err != nil {
+		chatControlError(w, err)
 		return
 	}
+	s.cancelTaskChat(t.ID, agent.AbortChatStoppedByUser)
 	writeJSON(w, 200, map[string]any{"status": "stopping"})
 }
 

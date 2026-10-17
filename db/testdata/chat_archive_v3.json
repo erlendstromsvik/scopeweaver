@@ -1,0 +1,55 @@
+{
+  "format_version": 3,
+  "created_at": "2026-10-13T00:00:00Z",
+  "task_id": 1,
+  "exploration_id": 1,
+  "source_task_ids": [],
+  "hosts": [],
+  "exclusive_hosts": [],
+  "exclusive_asset_ids": [],
+  "tables": {
+    "tasks": [{
+      "id": 1, "name": "v3 archive", "category_id": null,
+      "description": "v3 archived task", "goal": "offline compatibility fixture",
+      "exploration_id": 1, "status": "paused", "paused": true,
+      "queued": false, "queued_at": null, "queue_mode": "",
+      "llm_profile_id": null, "active_llm_profile_id": null, "llm_chain_revision": 0,
+      "company_id": null, "parent_ref": null, "timeout_seconds": 0,
+      "plan_heartbeat_seconds": 300, "coverage_enabled": true, "pinned_at": null,
+      "first_run_at": null, "deadline_at": null, "archived_at": null,
+      "deleted_at": null, "completed_at": null,
+      "created_at": "2026-10-13T00:00:00Z", "updated_at": "2026-10-13T00:00:00Z"
+    }],
+    "explorations": [{
+      "id": 1, "description": "v3 archived task", "goal": "offline compatibility fixture",
+      "status": "open", "round_no": 0,
+      "created_at": "2026-10-13T00:00:00Z", "updated_at": "2026-10-13T00:00:00Z"
+    }],
+    "activity": [{
+      "id": 1, "exploration_id": 1, "node_id": null, "worker": "mainagent",
+      "kind": "user", "tool": null, "tool_use_id": null, "is_error": false,
+      "summary": "v3 original history", "detail": "v3 original history\n한글", "metadata": {},
+      "input_tokens": null, "output_tokens": null, "cache_read_tokens": null,
+      "cache_write_tokens": null, "main_seg": null, "created_at": "2026-10-13T00:00:00Z"
+    }],
+    "llm_usage": [{
+      "id": 1, "ts": "2026-10-13T00:00:00Z", "task_id": "1", "exploration_id": 1,
+      "worker": "mainagent", "model": "v3-model", "profile_name": "v3-profile",
+      "latency_ms": 1, "input_tokens": 11, "output_tokens": 7,
+      "cache_read": 3, "cache_write": 2, "reasoning_tokens": 4, "status": "ok"
+    }],
+    "side_question_sessions": [{
+      "session_key": "v3-side-session", "conversation_id": null, "task_id": 1,
+      "exploration_id": 1, "intent_id": null, "run_id": 1, "version": 1,
+      "snapshot": {}, "generation": 0, "memory": {}
+    }],
+    "side_question_requests": [{
+      "id": "v3-question", "ordinal": 1, "session_key": "v3-side-session", "generation": 0,
+      "client_id": "v3-client", "question": "v3 question", "answer": "v3 answer",
+      "status": "completed", "error": "", "model": {}, "snapshot_at": "2026-10-13T00:00:00Z",
+      "created_at": "2026-10-13T00:00:00Z", "sequence": 1, "usage": {}, "context_info": {}
+    }]
+  },
+  "data_counts": {"tasks": 1, "explorations": 1, "activity": 1, "llm_usage": 1, "side_question_sessions": 1, "side_question_requests": 1},
+  "aggregate_stats": {}
+}

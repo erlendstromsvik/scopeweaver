@@ -171,8 +171,12 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		noaSession = fmt.Sprintf("exp%d-main-s%d", ts.ID(), mainSeg)
 	}
 	secureWebSearch(&opts, m.webSearch.PolicyResolver, m.webSearch.DeepSeekMeter)
+	if err := bindChatRunOptions(ctx, &opts); err != nil {
+		return "", err
+	}
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: m.nativeOllamaFn != nil && m.nativeOllamaFn(), ContextWindow: m.compactionWindow()})
-	enableNoa(&opts, m.noaEnabledFn, m.workDir, noaSession, noaWarn(noaSession))
+	noaSessionState := enableNoa(&opts, m.noaEnabledFn, m.workDir, chatNoaSession(ctx, noaSession), noaWarn(noaSession))
+	ctx = attachChatContext(ctx, &opts, def, noaSessionState)
 	ctx = attachSideCapture(ctx, &opts)
 	s := agentcore.NewSession(opts)
 	defer s.Close()
@@ -180,7 +184,9 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	// across turns (each Chat is a fresh session; without this it can't see earlier
 	// messages). First turn: no file yet → Resume loads nothing and proceeds.
 	if m.tx != nil {
-		_ = s.Resume(opts.SessionID)
+		if err := s.Resume(opts.SessionID); err != nil {
+			return "", err
+		}
 	}
 	// C2: this session is fresh each turn; re-unlock skill-gated MCPs from prior
 	// Skill() calls in the reloaded history so revealed tools stay callable.

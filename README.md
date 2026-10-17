@@ -44,6 +44,11 @@ output instructions use the run language; user-edited templates and stored evide
 Report/CSV/ZIP labels use the export request's language. [Full documentation](docs/README.md) and
 [Korean references](docs/ko/README.md) include the bundled skill guidance.
 
+Standalone penetration-testing conversations save confirmed findings directly to the Findings
+page under the unassigned-task group. Each conversation keeps its own finding history across
+turns without starting a task. Missing or invalid prompts for Auto, Penetration testing, Report
+writer, and Finding retest fall back to their role defaults; render failures appear in backend logs.
+
 ## Screenshots
 
 These captures show ScopeWeaver's English interface with the included fictional demo data.
@@ -82,6 +87,11 @@ which saves you from collecting the same data twice:
 ---
 
 ## Installation
+
+Run only one active ScopeWeaver server per PostgreSQL database. Its data directory must also
+have a single owner. Stop the previous server before starting a replacement; concurrent replicas
+sharing either resource are unsupported. Startup recovery treats unfinished chat work as
+interrupted and reconciles unpublished transcript files before resuming queues.
 
 ### GLM and other model providers
 

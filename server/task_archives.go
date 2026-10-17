@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/locale"
+	"github.com/Autumn-27/norma/transcript"
 	"log"
 	"net/http"
 	"os"
@@ -126,6 +128,9 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 			s.abortTaskDelete(taskID)
 		}
 	}()
+	if err := s.closeTaskChatGate(s.ctx, taskID); err != nil {
+		return err
+	}
 	s.cancelTaskChat(taskID, agent.AbortTaskDeleted)
 	drainCtx, cancel := context.WithTimeout(s.ctx, taskDeleteDrainTimeout)
 	defer cancel()
@@ -143,7 +148,11 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 		return pgdb.ErrTaskArchiveNotFound
 	}
 	_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "stage_files", 10)
-	fileStage, err := stageTaskArchiveFiles(s.m.dir, job.ID, taskID, task.ExplorationID)
+	revisions, err := s.m.pg.TaskChatTranscriptRevisions(drainCtx, job.TaskID)
+	if err != nil {
+		return err
+	}
+	fileStage, err := stageTaskArchiveFiles(s.m.dir, job.ID, taskID, task.ExplorationID, revisions...)
 	if err != nil {
 		return err
 	}
@@ -327,6 +336,15 @@ func (s *Server) restoreTaskArchivePayload(job *pgdb.TaskArchive, snapshot *pgdb
 			runErr = errors.Join(runErr, files.rollback())
 		}
 	}()
+	revisions, err := pgdb.ChatArchiveTranscriptRevisions(snapshot.Tables)
+	if err != nil {
+		return err
+	}
+	for _, revision := range revisions {
+		if err = chatstate.ValidateTranscriptPrefix(transcript.NewStore(filepath.Join(s.m.dir, "transcripts")), revision); err != nil {
+			return err
+		}
+	}
 	_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "restore_database", 70)
 	var warnings []string
 	if llmRecordsFile != nil {

@@ -59,7 +59,7 @@ const cleanupErrors = [];
 let bodyError;
 async function startServer() {
   runtime = fs.mkdtempSync(path.join(os.tmpdir(), "scopeweaver-dashboard-"));
-  const isolatedBinary = path.join(runtime, "scopeweaver");
+  const isolatedBinary = path.join(runtime, process.platform === "win32" ? "scopeweaver.exe" : "scopeweaver");
   // BaseDir also anchors self-update files, so isolate the executable itself.
   fs.copyFileSync(binary, isolatedBinary);
   fs.chmodSync(isolatedBinary, 0o700);
@@ -227,10 +227,12 @@ try {
         assert.ok((await panel.textContent()).includes(texts[locale].miss), `${id} cache-miss legend`);
         if (version === "new") {
           const reasoning = usage.by_profile.filter(p => profile === "all" || p.profile_name === `${prefix}-${profile}`).reduce((a, p) => a + p.reasoning_tokens, 0);
-          // A hidden tooltip from an earlier hover can stay in the DOM; read only the visible metric.
-          const line = (await panel.getByText(texts[locale].reasoning, { exact: true }).filter({ visible: true }).locator("xpath=..").textContent()).trim();
+          // The summary and hover tooltip share this label. Read the aggregate outside the chart.
+          const metric = panel.getByText(texts[locale].reasoning, { exact: true })
+            .and(panel.locator(':not([data-slot="chart"] *)')).filter({ visible: true });
+          const line = (await metric.locator("xpath=..").textContent()).trim();
           assert.equal(line, `${texts[locale].reasoning}${fmt(reasoning)}`, `${id} reasoning metric`);
-        } else assert.equal(await panel.getByText(texts[locale].reasoning, { exact: true }).filter({ visible: true }).count(), 0, `${id} legacy view shows reasoning`);
+        } else assert.equal(await panel.getByText(texts[locale].reasoning, { exact: true }).and(panel.locator(':not([data-slot="chart"] *)')).filter({ visible: true }).count(), 0, `${id} legacy view shows reasoning`);
         // Real pointer hover exercises the actual visible tooltip on every day.
         await chart.scrollIntoViewIfNeeded();
         const svgBox = await chart.locator("svg.recharts-surface").boundingBox();

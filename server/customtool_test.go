@@ -217,3 +217,51 @@ func TestHTTPToolTruncatesLargeBody(t *testing.T) {
 		t.Fatalf("oversized http body was not truncated: len=%d", len(out))
 	}
 }
+
+func TestHTTPToolUsesManagerProxyURL(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("direct-fixture"))
+	}))
+	defer origin.Close()
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "http://fixture.invalid/recorded" {
+			t.Errorf("unexpected proxied request: %s", r.URL)
+		}
+		_, _ = w.Write([]byte("captured-fixture"))
+	}))
+	defer proxy.Close()
+	for _, tc := range []struct {
+		name         string
+		spec         httpExec
+		managerProxy string
+		want         string
+	}{
+		{"direct", httpExec{URL: origin.URL}, proxy.URL, "direct-fixture"},
+		{"explicit", httpExec{URL: "http://fixture.invalid/recorded", Proxy: proxy.URL}, "http://127.0.0.1:1", "captured-fixture"},
+		{"automatic", httpExec{URL: "http://fixture.invalid/recorded", Proxy: "http://127.0.0.1:1", UseRecordingProxy: true}, proxy.URL, "captured-fixture"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{m: &Manager{globalProxy: tc.managerProxy}}
+			if tc.spec.UseRecordingProxy {
+				request, err := http.NewRequest("GET", tc.spec.URL, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				proxyURL, err := s.httpProxyTransport(tc.spec).Proxy(request)
+				if err != nil || proxyURL.String() != tc.managerProxy {
+					t.Fatalf("automatic proxy URL = %v, %v; want %s", proxyURL, err, tc.managerProxy)
+				}
+			}
+			tc.spec.Method = "GET"
+			tc.spec.TimeoutMs = 1000
+			raw, err := json.Marshal(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := s.runHTTPTool(t.Context(), raw, nil, nil)
+			if err != nil || result.IsError || !strings.Contains(result.Flatten(), tc.want) {
+				t.Fatalf("HTTP route failed: result=%+v err=%v", result, err)
+			}
+		})
+	}
+}

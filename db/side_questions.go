@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/Autumn-27/artex/locale"
 
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/sidequestion"
 	"github.com/google/uuid"
 )
@@ -53,10 +54,13 @@ func (d *DB) SaveSideSnapshot(ctx context.Context, s sidequestion.Snapshot) erro
 	if err = lockSideParent(ctx, tx, s.Parent); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO side_question_sessions(session_key,conversation_id,task_id,exploration_id,intent_id,run_id,version,snapshot)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(session_key) DO UPDATE SET run_id=EXCLUDED.run_id,version=EXCLUDED.version,snapshot=EXCLUDED.snapshot
+	if err = validateSideSnapshotTx(ctx, tx, s); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO side_question_sessions(session_key,conversation_id,task_id,exploration_id,intent_id,run_id,version,snapshot,main_seg,history_revision)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(session_key) DO UPDATE SET run_id=EXCLUDED.run_id,version=EXCLUDED.version,snapshot=EXCLUDED.snapshot,history_revision=EXCLUDED.history_revision,main_seg=EXCLUDED.main_seg
 WHERE (side_question_sessions.run_id,side_question_sessions.version)<(EXCLUDED.run_id,EXCLUDED.version)`,
-		s.Parent.Key(), nullableSideID(s.Parent.ConversationID), nullableSideID(s.Parent.TaskID), nullableSideID(s.Parent.ExplorationID), nullableSideID(s.Parent.IntentID), s.RunID, s.Version, string(jsonbClean(b)))
+		s.Parent.Key(), nullableSideID(s.Parent.ConversationID), nullableSideID(s.Parent.TaskID), nullableSideID(s.Parent.ExplorationID), nullableSideID(s.Parent.IntentID), s.RunID, s.Version, string(jsonbClean(b)), s.Parent.MainSeg, s.HistoryRevision)
 	if err != nil {
 		return err
 	}
@@ -65,7 +69,7 @@ WHERE (side_question_sessions.run_id,side_question_sessions.version)<(EXCLUDED.r
 
 func (d *DB) SideSnapshot(ctx context.Context, key string) (*sidequestion.Snapshot, error) {
 	var b []byte
-	err := d.QueryRowContext(ctx, `SELECT snapshot FROM side_question_sessions WHERE session_key=$1`, key).Scan(&b)
+	err := d.QueryRowContext(ctx, `SELECT snapshot FROM side_question_sessions WHERE session_key=$1 AND snapshot<>'{}'::jsonb`, key).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -74,10 +78,19 @@ func (d *DB) SideSnapshot(ctx context.Context, key string) (*sidequestion.Snapsh
 	}
 	var s sidequestion.Snapshot
 	err = json.Unmarshal(b, &s)
-	return &s, err
+	if err != nil {
+		return nil, err
+	}
+	if err = d.ValidateSideSnapshot(ctx, s); err != nil {
+		if errors.Is(err, chatstate.ErrConflict) || errors.Is(err, ErrSideParentGone) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &s, nil
 }
 
-const sideCols = `id,ordinal,session_key,generation,client_id,question,answer,status,error,model,snapshot_at,created_at,sequence,usage,context_info`
+const sideCols = `id,ordinal,session_key,generation,client_id,question,answer,status,error,model,snapshot_at,created_at,sequence,usage,context_info,history_revision,source_run_id`
 
 func (d *DB) ExistingSideRequest(ctx context.Context, key, client string) (*sidequestion.Exchange, error) {
 	e, err := scanSide(d.QueryRowContext(ctx, `SELECT `+sideCols+` FROM side_question_requests WHERE session_key=$1 AND client_id=$2 AND generation=(SELECT generation FROM side_question_sessions WHERE session_key=$1)`, key, client))
@@ -90,7 +103,7 @@ func (d *DB) ExistingSideRequest(ctx context.Context, key, client string) (*side
 func scanSide(row interface{ Scan(...any) error }) (sidequestion.Exchange, error) {
 	var e sidequestion.Exchange
 	var model, usage, info []byte
-	err := row.Scan(&e.ID, &e.Ordinal, &e.SessionKey, &e.Generation, &e.ClientID, &e.Question, &e.Answer, &e.Status, &e.Error, &model, &e.SnapshotAt, &e.CreatedAt, &e.Sequence, &usage, &info)
+	err := row.Scan(&e.ID, &e.Ordinal, &e.SessionKey, &e.Generation, &e.ClientID, &e.Question, &e.Answer, &e.Status, &e.Error, &model, &e.SnapshotAt, &e.CreatedAt, &e.Sequence, &usage, &info, &e.HistoryRevision, &e.SourceRunID)
 	if err != nil {
 		return e, err
 	}
@@ -166,6 +179,9 @@ func (d *DB) StartSideRequest(ctx context.Context, s sidequestion.Snapshot, clie
 	if err = lockSideParent(ctx, tx, s.Parent); err != nil {
 		return nil, false, err
 	}
+	if err = validateSideSnapshotTx(ctx, tx, s); err != nil {
+		return nil, false, err
+	}
 	var generation int64
 	if err = tx.QueryRowContext(ctx, `SELECT generation FROM side_question_sessions WHERE session_key=$1 FOR UPDATE`, s.Parent.Key()).Scan(&generation); err != nil {
 		return nil, false, err
@@ -191,7 +207,7 @@ func (d *DB) StartSideRequest(ctx context.Context, s sidequestion.Snapshot, clie
 	if err != nil {
 		return nil, false, err
 	}
-	e, err = scanSide(tx.QueryRowContext(ctx, `INSERT INTO side_question_requests(id,session_key,generation,client_id,question,status,model,snapshot_at) VALUES($1,$2,$3,$4,$5,'running',$6,$7) RETURNING `+sideCols, uuid.NewString(), s.Parent.Key(), generation, clientID, question, string(model), s.CapturedAt))
+	e, err = scanSide(tx.QueryRowContext(ctx, `INSERT INTO side_question_requests(id,session_key,generation,client_id,question,status,model,snapshot_at,history_revision,source_run_id) VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8,$9) RETURNING `+sideCols, uuid.NewString(), s.Parent.Key(), generation, clientID, question, string(model), s.CapturedAt, s.HistoryRevision, s.SourceRunID))
 	if err != nil {
 		return nil, false, err
 	}
@@ -237,7 +253,10 @@ func (d *DB) SideMemory(ctx context.Context, e sidequestion.Exchange) (sidequest
 	var memory sidequestion.Memory
 	var raw []byte
 	err := d.QueryRowContext(ctx, `SELECT s.memory FROM side_question_sessions s JOIN side_question_requests r ON r.session_key=s.session_key
-WHERE r.id=$1 AND r.generation=s.generation AND s.generation=$2 AND r.status='running'`, e.ID, e.Generation).Scan(&raw)
+WHERE r.id=$1 AND r.generation=s.generation AND s.generation=$2 AND r.status='running' AND s.history_revision=r.history_revision`, e.ID, e.Generation).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return memory, nil
+	}
 	if err != nil {
 		return memory, err
 	}
@@ -249,7 +268,7 @@ WHERE r.id=$1 AND r.generation=s.generation AND s.generation=$2 AND r.status='ru
 // successful exchanges, in bounded pages and only before the admitted request.
 func (d *DB) SideReplayPage(ctx context.Context, e sidequestion.Exchange, after int64) ([]sidequestion.Exchange, error) {
 	rows, err := d.QueryContext(ctx, `SELECT `+sideCols+` FROM side_question_requests WHERE session_key=$1 AND generation=$2
-AND status='completed' AND ordinal>$3 AND ordinal<$4 ORDER BY ordinal LIMIT 20`, e.SessionKey, e.Generation, after, e.Ordinal)
+AND status='completed' AND ordinal>$3 AND ordinal<$4 AND ((source_run_id='' AND history_revision=$5) OR EXISTS(SELECT 1 FROM chat_control_runs cr WHERE cr.id=side_question_requests.source_run_id AND cr.active AND cr.session_key=$6)) ORDER BY ordinal LIMIT 20`, e.SessionKey, e.Generation, after, e.Ordinal, e.HistoryRevision, sideControlKey(e.SessionKey))
 	if err != nil {
 		return nil, err
 	}
@@ -271,12 +290,21 @@ func (d *DB) SaveSideMemory(ctx context.Context, e sidequestion.Exchange, memory
 		return err
 	}
 	result, err := d.ExecContext(ctx, `UPDATE side_question_sessions s SET memory=$3 WHERE s.session_key=$1 AND s.generation=$2
-AND EXISTS(SELECT 1 FROM side_question_requests r WHERE r.id=$4 AND r.session_key=s.session_key AND r.generation=s.generation AND r.status='running')`, e.SessionKey, e.Generation, string(raw), e.ID)
+AND s.history_revision=$5 AND EXISTS(SELECT 1 FROM side_question_requests r WHERE r.id=$4 AND r.session_key=s.session_key AND r.generation=s.generation AND r.status='running')`, e.SessionKey, e.Generation, string(raw), e.ID, e.HistoryRevision)
 	if err != nil {
 		return err
 	}
 	n, err := result.RowsAffected()
 	if err == nil && n == 0 {
+		// History changes discard this cache write, while the admitted answer may
+		// still finish from its immutable checkpoint. Clear/delete still cancel it.
+		var running bool
+		if err = d.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM side_question_sessions s JOIN side_question_requests r ON r.session_key=s.session_key AND r.generation=s.generation WHERE r.id=$1 AND r.status='running' AND s.generation=$2)`, e.ID, e.Generation).Scan(&running); err != nil {
+			return err
+		}
+		if running {
+			return nil
+		}
 		return ErrSideParentGone
 	}
 	return err

@@ -20,9 +20,9 @@ import (
 // ChatAgent is the generic, task-independent conversational runner behind the chat
 // page. It generalizes MainAgent.Chat: any agent (built-in OR a custom one, by
 // key) can be chatted with, multi-turn history resumed from the transcript. It is
-// a PURE ASSISTANT — base tools are the SDK DefaultTools (Bash/Read/Write/Edit/
-// LS/Glob/Grep) plus whatever skills/MCP the key is made visible; NO pentest
-// graph/task context is injected (that stays exclusive to MainAgent).
+// built on SDK DefaultTools (Bash/Read/Write/Edit/LS/Glob/Grep) plus its visible
+// skills/MCP and bound tools. Finding tools use a conversation-owned graph;
+// task orchestration and its execution context remain separate.
 type ChatAgent struct {
 	nativeOllamaFn func() bool
 	prov           llm.Provider
@@ -86,16 +86,25 @@ func chatWorkDirSpec(workDir string, langs ...locale.Lang) string {
 	return locale.Text(locale.First(langs), "\n\n**File output rules**: Write all files to the working directory ") + workDir + locale.Text(locale.First(langs), " (the default CWD; use relative paths or this absolute path). Do not write to /tmp or other absolute paths.")
 }
 
-// chatSystem renders the DB-managed prompt body for agentKey. Custom agents have
-// no per-key in-code default, so DefaultAssistantPrompt is the render fallback.
+// chatSystem preserves the role default if its stored template is missing or invalid.
 func chatSystem(agentKey, dataDir, workDir string, langs ...locale.Lang) string {
-	return renderSystem(agentKey, DefaultAssistantPrompt, chatVars{DataDir: dataDir, Now: nowStr()}, langs...) + chatWorkDirSpec(workDir, langs...)
+	def := DefaultAssistantPrompt
+	switch agentKey {
+	case "auto":
+		def = autoDefaultTmpl
+	case "pentest":
+		def = pentestDefaultTmpl
+	case "reporter":
+		def = ReporterDefaultPrompt
+	case "retester":
+		def = RetesterDefaultPrompt
+	}
+	return renderSystem(agentKey, def, chatVars{DataDir: dataDir, Now: nowStr()}, langs...) + chatWorkDirSpec(workDir, langs...)
 }
 
 // chatVars carries the runtime variables a custom agent's prompt may reference.
 // DataDir (server data root) + Now (server wall-clock, refreshed each turn) are the
-// universal ones; any other {{.X}} fails to render and falls back to
-// DefaultAssistantPrompt.
+// universal ones; any other {{.X}} fails to render and falls back to the role default.
 type chatVars struct{ DataDir, Now string }
 
 // Chat runs ONE turn of a conversation with the agent identified by agentKey,
@@ -174,15 +183,21 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 	}
 	// Experimental noa compaction stores persistent archives under <workDir>/noa/<SessionID>.
 	secureWebSearch(&opts, ws.PolicyResolver, ws.DeepSeekMeter)
+	if err := bindChatRunOptions(ctx, &opts); err != nil {
+		return "", err
+	}
 	applyRuntimePolicy(&opts, RuntimePolicy{NativeOllama: c.nativeOllamaFn != nil && c.nativeOllamaFn(), ContextWindow: c.window})
-	enableNoa(&opts, c.noaEnabledFn, c.workDir, "chat-"+sessionID, noaWarn("chat-"+sessionID))
+	noaSessionState := enableNoa(&opts, c.noaEnabledFn, c.workDir, chatNoaSession(ctx, "chat-"+sessionID), noaWarn("chat-"+sessionID))
+	ctx = attachChatContext(ctx, &opts, def, noaSessionState)
 	ctx = attachSideCapture(ctx, &opts)
 	s := agentcore.NewSession(opts)
 	defer s.Close()
 	// reload prior conversation so the agent has context across turns (each Chat is
 	// a fresh session). First turn: no file yet → Resume loads nothing and proceeds.
 	if c.tx != nil {
-		_ = s.Resume(sessionID)
+		if err := s.Resume(opts.SessionID); err != nil {
+			return "", err
+		}
 	}
 	// re-unlock skill-gated MCPs from prior Skill() calls in the reloaded history so
 	// revealed tools stay callable across the fresh session.

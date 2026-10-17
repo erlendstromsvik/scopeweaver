@@ -1,0 +1,5 @@
+# Chat upgrade fixtures
+
+- `chat_upgrade_6366429.sql` is the exact `db/schema.sql` from ScopeWeaver commit `6366429ccd941ad4704b23117a5fa2b370b49ccd`, before PR29/PR30. Keep it pinned; do not regenerate it from the current schema. The complete schema is necessary to exercise upgrade DDL against existing tables rather than accidentally creating unrelated tables fresh.
+- `chat_archive_v3.json` is a serialized v3 fixture with synthetic offline records and the column shapes from that commit's schema and `TaskArchiveSnapshot` serializer. It is not a production archive and is not a v4 snapshot with a changed version number. In particular, it has no chat-control tables, activity identities, side-question history revision or source run ID. The unchanged usage schema includes reasoning token accounting.
+- Tests create an isolated schema inside the `ARTEX_TEST_DSN` disposable database, apply the baseline and current schema twice, then remove only that schema. The regular DB test guard still refuses the application's live database; these tests additionally require the `scopeweaver_test_*` database prefix.

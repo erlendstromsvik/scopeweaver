@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -77,6 +78,12 @@ WHERE relation.source_task_id=$1 LIMIT 1`, taskID).Scan(&dependent)
 		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE task_id=$1 OR exploration_id=$2`, taskID, expID); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec(`DELETE FROM chat_control_gates WHERE task_id=$1`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM main_sessions WHERE exploration_id=$1`, expID); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM side_question_sessions WHERE task_id=$1`, taskID); err != nil {
 		return err
@@ -252,6 +259,9 @@ WHERE archive.id=$1 FOR UPDATE OF archive,task`, archiveID).Scan(&taskID, &expID
 	} else {
 		warnings = append(warnings, warning...)
 	}
+	if err := RestoreChatControls(context.Background(), tx, remappedTables); err != nil {
+		return nil, err
+	}
 	for _, table := range []string{"side_question_sessions", "side_question_requests"} {
 		if err := insertArchiveRows(tx, table, remappedTables[table]); err != nil {
 			return nil, locale.Errorf("restore %s: %w", table, err)
@@ -377,6 +387,12 @@ func insertArchiveRows(tx *sql.Tx, table string, raw json.RawMessage) error {
 			field, fallback = "reasoning_tokens", json.RawMessage(`0`)
 		}
 		for _, row := range rows {
+			if len(row["history_revision"]) == 0 || string(row["history_revision"]) == "null" {
+				row["history_revision"] = json.RawMessage(`0`)
+			}
+			if table == "side_question_requests" && (len(row["source_run_id"]) == 0 || string(row["source_run_id"]) == "null") {
+				row["source_run_id"] = json.RawMessage(`""`)
+			}
 			if len(row[field]) == 0 || string(row[field]) == "null" {
 				row[field] = fallback
 			}

@@ -495,20 +495,24 @@ func findingRefDTOs(in []*db.FindingRef) []FindingRefDTO {
 // ---- Activity (frontend "Activity") ----
 
 type ActivityDTO struct {
-	Seq          int64           `json:"seq"`                 // db Activity.ID
-	IntentID     string          `json:"intent_id,omitempty"` // db NodeID
-	Worker       string          `json:"worker"`
-	TS           string          `json:"ts"` // db CreatedAt
-	Kind         string          `json:"kind"`
-	Tool         string          `json:"tool,omitempty"`
-	ToolUseID    string          `json:"tool_use_id,omitempty"`
-	IsError      bool            `json:"is_error"`
-	Summary      string          `json:"summary"`
-	Detail       string          `json:"detail,omitempty"`
-	Metadata     json.RawMessage `json:"metadata,omitempty"`
-	SourceTaskID string          `json:"source_task_id,omitempty"`
-	Inherited    bool            `json:"inherited,omitempty"`
-	MainSeg      *int            `json:"main_seg,omitempty"` // main-agent conversation segment (nil for non-mainagent rows)
+	TurnID         string          `json:"turn_id,omitempty"`
+	RunID          string          `json:"run_id,omitempty"`
+	ActiveAttempt  *bool           `json:"active_attempt,omitempty"`
+	HistoryMutable *bool           `json:"history_mutable,omitempty"`
+	Seq            int64           `json:"seq"`                 // db Activity.ID
+	IntentID       string          `json:"intent_id,omitempty"` // db NodeID
+	Worker         string          `json:"worker"`
+	TS             string          `json:"ts"` // db CreatedAt
+	Kind           string          `json:"kind"`
+	Tool           string          `json:"tool,omitempty"`
+	ToolUseID      string          `json:"tool_use_id,omitempty"`
+	IsError        bool            `json:"is_error"`
+	Summary        string          `json:"summary"`
+	Detail         string          `json:"detail,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	SourceTaskID   string          `json:"source_task_id,omitempty"`
+	Inherited      bool            `json:"inherited,omitempty"`
+	MainSeg        *int            `json:"main_seg,omitempty"` // main-agent conversation segment (nil for non-mainagent rows)
 	// token usage (set only on kind='result'); used for per-session token totals.
 	InputTokens      *int `json:"input_tokens,omitempty"`
 	OutputTokens     *int `json:"output_tokens,omitempty"`
@@ -522,7 +526,8 @@ func activityDTO(a db.Activity) ActivityDTO {
 		intent = i64s(*a.NodeID)
 	}
 	d := ActivityDTO{
-		Seq:              a.ID,
+		Seq:    a.ID,
+		TurnID: a.TurnID, RunID: a.RunID, ActiveAttempt: a.ActiveAttempt, HistoryMutable: a.HistoryMutable,
 		IntentID:         intent,
 		Worker:           a.Worker,
 		TS:               rfc3339(a.CreatedAt),

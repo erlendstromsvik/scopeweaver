@@ -1,4 +1,5 @@
 "use client";
+import {ChatContextInspector,type ChatContextHandle} from "@/components/chat-context-inspector";
 import { getIntlLocale } from "@/i18n/runtime";
 
 import { translate as swt } from "@/i18n/runtime";
@@ -25,6 +26,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ChatAttachmentChips } from "@/components/chat-attachment-chips";
+import { useChatControls, submitChatAdmission } from "@/hooks/use-chat-controls";
+import { parseChatCommand } from "@/lib/chat-commands";
+import {ChatMessageActions,ChatParentLink} from "@/components/chat-message-actions";
+import type {ChatHistoryResult,ChatSessionRef} from "@/lib/types";
+import {newChatID} from "@/lib/chat-attachment-state";
+import { ChatQueue } from "@/components/chat-queue";
+import { useChatAttachments, useChatDraft } from "@/hooks/use-chat-attachments";
 import { MentionTextarea } from "@/components/mention-textarea";
 import { SideQuestionButton, SideQuestionWorkspace } from "@/components/side-question-workspace";
 import { TodoPopover } from "@/components/todo-popover";
@@ -159,11 +168,11 @@ function Composer({
   running,
   onStop,
   stopDisabled,
-  attachments,
-  onPickFiles,
-  onRemoveAttachment,
-  uploading,
+  attachmentState,
+  draftKey,
   allowBtw,
+  queueMode,
+  onSteer,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -174,18 +183,19 @@ function Composer({
   running?: boolean;
   onStop?: () => void;
   stopDisabled?: boolean;
-  // File upload mode: show the attachment button and preview chips only when onPickFiles is supplied.
-  attachments?: ChatAttachment[];
-  onPickFiles?: (files: File[]) => void;
-  onRemoveAttachment?: (path: string) => void;
-  uploading?: boolean;
+  attachmentState: ReturnType<typeof useChatAttachments>;
+  draftKey: string;
   allowBtw?: boolean;
+  queueMode?: boolean;
+  onSteer?: () => void;
 }) {
   "use no memo";
   const { t: swt, locale: swLocale } = useI18n();
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const atts = attachments ?? [];
+  const atts = attachmentState.uploaded;
+  const uploading = attachmentState.uploading;
+  const onPickFiles = attachmentState.addFiles;
   // The send shortcut follows localStorage settings; Enter sends by default.
   const sendMode = useChatSendMode();
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -195,31 +205,7 @@ function Composer({
   }
   return (
     <div className="border-t p-3">
-      {atts.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {atts.map((a) => (
-            <div
-              key={a.path}
-              className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs"
-              title={a.path}
-            >
-              <PaperclipIcon className="size-3 shrink-0 text-primary" />
-              <span className="max-w-[160px] truncate">{a.name}</span>
-              <span className="text-muted-foreground">{fmtBytes(a.size)}</span>
-              {onRemoveAttachment && (
-                <button
-                  type="button"
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                  onClick={() => onRemoveAttachment(a.path)}
-                  title={swt("interface.m0069")}
-                >
-                  <XIcon className="size-3" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <ChatAttachmentChips attachments={attachmentState} />
       <div className="flex flex-wrap items-center gap-2">
         {leftSlot ? <div className="w-full sm:w-auto">{leftSlot}</div> : null}
         {onPickFiles && (
@@ -251,34 +237,23 @@ function Composer({
         <MentionTextarea
           className="max-h-40 min-h-10 min-w-0 flex-1 resize-none"
           rows={1}
+          data-chat-draft={draftKey}
+          onPaste={attachmentState.onPaste}
           placeholder={placeholder}
           value={value}
-          disabled={disabled && !(running && allowBtw)}
+          disabled={disabled}
           onValueChange={onChange}
           onKeyDown={onKeyDown}
         />
-        {running && allowBtw && isBtwCommand(value) && (
+        {running && allowBtw && isBtwCommand(value) && !queueMode && (
           <Button size="icon" onClick={onSend} aria-label={swt("interface.m0071")} title={swt("interface.m0071")}>
             <ArrowUpIcon />
           </Button>
         )}
-        {running ? (
-          // while a run is in flight the send button becomes a stop button —
-          // aborts just this session (the trigger queue keeps going).
-          <Button size="icon" variant="destructive" onClick={onStop} disabled={stopDisabled} title={swt("interface.m0072")}>
-            <Square className="size-3.5 fill-current" />
-          </Button>
-        ) : (
-          <Button
-            size="icon"
-            onClick={onSend}
-            disabled={disabled || (!value.trim() && atts.length === 0)}
-            title={swt("interface.m0073")}
-            aria-label={swt("interface.m0073")}
-          >
-            <ArrowUpIcon />
-          </Button>
-        )}
+        {running && onSteer && <Button variant="outline" onClick={onSteer} disabled={disabled || attachmentState.items.length>0 || !value.trim()} title={swt("interface.chatSteerHint")}>{swt("interface.chatSteer")}</Button>}
+        {(!running || queueMode) && <Button onClick={onSend} disabled={disabled || !attachmentState.canSubmit || (!value.trim() && atts.length === 0)} title={swt(queueMode?"interface.chatQueue":"interface.m0073")} aria-label={swt(queueMode?"interface.chatQueue":"interface.m0073")}>{queueMode?swt("interface.chatQueue"):<ArrowUpIcon/>}</Button>}
+        {running && <Button size="icon" variant="destructive" onClick={onStop} disabled={stopDisabled} aria-label={swt("interface.chatStop")} title={swt("interface.chatStop")}><Square className="size-3.5 fill-current"/></Button>}
+
       </div>
     </div>
   );
@@ -386,11 +361,19 @@ function DraftChat({
   "use no memo";
   const { t: swt, locale: swLocale } = useI18n();
 
-  const [agentKey, setAgentKey] = React.useState("");
-  const [llmProfileId, setLlmProfileId] = React.useState<number | null>(null);
-  const [input, setInput] = React.useState("");
+  const [agentKey, setAgentKey] = useChatDraft("chat:draft:agent");
+  const [profileDraft, setProfileDraft] = useChatDraft("chat:draft:profile");
+  const llmProfileId = profileDraft ? Number(profileDraft) : null;
+  const setLlmProfileId = (id: number | null) => setProfileDraft(id == null ? "" : String(id));
+  const draftKey = "chat:draft";
+ const contextInspector=React.useRef<ChatContextHandle>(null);
+  const [input, setInput] = useChatDraft(draftKey);
   const [sending, setSending] = React.useState(false);
-  const [uploading, setUploading] = React.useState(false);
+  const attachmentState = useChatAttachments({ draftKey, ensureOwner: async () => {
+    const conversation = await api.createConversation(agentKey, "", llmProfileId);
+    return { scope: "session", id: `conv-${conversation.id}` };
+  } });
+  const uploading = attachmentState.uploading;
 
   // default the agent to Auto once agents load.
   React.useEffect(() => {
@@ -400,12 +383,22 @@ function DraftChat({
   const agent = agents.find((a) => a.key === agentKey);
 
   async function send() {
-    const msg = input.trim();
-    if (!msg || !agentKey || sending) return;
+    let msg = input.trim();
+    const command=parseChatCommand(msg);
+ if(command?.kind==="context"||command?.kind==="usage"){contextInspector.current?.open();setInput("");return}
+ if(command?.kind==="compact"){if(await contextInspector.current?.compact(command.options))setInput("");return}
+    if(command?.kind==="invalid"){toast.error(swt("interface.chatCommandInvalid"));return}
+    if(command&&command.kind!=="queue"){toast.error(swt("interface.chatControlUnavailable"));return}
+    if(command?.kind==="queue")msg=command.text;
+    if ((!msg && attachmentState.uploaded.length === 0) || !agentKey || sending || !attachmentState.canSubmit) return;
     setSending(true);
     try {
-      const c = await api.createConversation(agentKey, "", llmProfileId);
-      await api.sendConversationMessage(c.id, msg);
+      const owner = await attachmentState.owner();
+      const c = (await api.conversations()).find((item) => `conv-${item.id}` === owner.id);
+      if (!c) throw new Error(swt("interface.chatOwnerMissing"));
+      await submitChatAdmission({conversation_id:String(c.id),task_id:"0",exploration_id:"0",main_seg:0},command?.kind==="queue"?"queue":"send",{text:msg,attachments:attachmentState.uploaded});
+      attachmentState.clear();
+      setInput("");
       onStarted(c);
     } catch (e) {
       toast.error(swt("interface.m0078") + (e as Error).message);
@@ -413,26 +406,8 @@ function DraftChat({
     }
   }
 
-  // Attachments need a conversation to own the uploads dir (sessions/conv-<id>/),
-  // and a draft has none yet — so picking a file CREATES the conversation, uploads
-  // into it, then hands off to ChatView carrying the typed text + attachments (the
-  // user sends from there). Mirrors the task main-agent console's upload, adapted to
-  // the ChatGPT-style lazy-create flow.
-  async function pickFiles(files: File[]) {
-    if (files.length === 0 || !agentKey || uploading || sending) return;
-    setUploading(true);
-    try {
-      const c = await api.createConversation(agentKey, "", llmProfileId);
-      const r = await api.chatUpload("session", `conv-${c.id}`, files);
-      onStarted(c, { input, attachments: r.attachments });
-    } catch (e) {
-      toast.error(swt("interface.m0079") + (e as Error).message);
-      setUploading(false);
-    }
-  }
-
   const agentPicker = (
-    <Select value={agentKey} onValueChange={setAgentKey}>
+    <Select value={agentKey} onValueChange={(key) => { attachmentState.clear(); setAgentKey(key); }} disabled={attachmentState.items.length > 0}>
       <SelectTrigger className="w-full sm:w-40">
         <SelectValue placeholder={swt("interface.m0080")} />
       </SelectTrigger>
@@ -466,6 +441,7 @@ function DraftChat({
         {agent?.description && <p className="text-muted-foreground max-w-md text-xs">{agent.description}</p>}
       </div>
 
+      <ChatContextInspector ref={contextInspector} controls={null}/>
       <Composer
         value={input}
         onChange={setInput}
@@ -473,14 +449,14 @@ function DraftChat({
         disabled={sending || uploading || !agentKey}
         placeholder={swt("interface.m0084")}
         leftSlot={agentPicker}
-        onPickFiles={pickFiles}
-        uploading={uploading}
+        attachmentState={attachmentState}
+        draftKey={draftKey}
       />
       <LLMProfileRow
         profiles={profiles}
         selected={llmProfileId}
-        onChange={setLlmProfileId}
-        disabled={sending || uploading}
+        onChange={(id) => { attachmentState.clear(); setLlmProfileId(id); }}
+        disabled={sending || uploading || attachmentState.items.length > 0}
       />
     </>
   );
@@ -496,6 +472,7 @@ function ChatView({
   initial,
   onTitleMaybeChanged,
   onConvUpdated,
+  onNavigate,
 }: {
   conv: Conversation;
   agents: Agent[];
@@ -505,19 +482,27 @@ function ChatView({
   initial?: { input?: string; attachments?: ChatAttachment[] };
   onTitleMaybeChanged: () => void;
   onConvUpdated: () => void;
+  onNavigate:(ref:ChatSessionRef)=>Promise<void>;
 }) {
   "use no memo";
   const { t: swt, locale: swLocale } = useI18n();
 
   const approvalFocus = useApprovalFocus({ conversationId: conv.id });
+  const [historyVersion,setHistoryVersion]=React.useState(0);
+  const historyEpoch=React.useRef(0);
+  const knownHistory=React.useRef<string|null>(null);
+  const knownTerminal=React.useRef("");
   const [messages, setMessages] = React.useState<Activity[]>([]);
   const [running, setRunning] = React.useState(false);
-  const [input, setInput] = React.useState(initial?.input ?? "");
+  const draftKey = `chat:conv-${conv.id}`;
+  const [input, setInput] = useChatDraft(draftKey, initial?.input ?? "");
   const [sending, setSending] = React.useState(false);
   const [stopping, setStopping] = React.useState(false);
   // Uploaded attachments live in sessions/conv-<id>/uploads/ and accompany the next message.
-  const [attachments, setAttachments] = React.useState<ChatAttachment[]>(initial?.attachments ?? []);
-  const [uploading, setUploading] = React.useState(false);
+  const contextInspector=React.useRef<ChatContextHandle>(null);
+ const controls=useChatControls({conversation_id:String(conv.id),task_id:"0",exploration_id:"0",main_seg:0});
+  const attachmentState = useChatAttachments({ draftKey, ensureOwner: async () => ({ scope: "session", id: `conv-${conv.id}` }) });
+  React.useEffect(() => { if (initial?.attachments?.length && !attachmentState.items.length) attachmentState.loadUploaded(initial.attachments); }, [initial?.attachments]);
   const cursorRef = React.useRef(0); // newest loaded id — incremental-tail anchor
   const earliestRef = React.useRef(0); // earliest loaded id — reverse-pagination anchor
   const hasMoreRef = React.useRef(false); // older history remains above the loaded window
@@ -540,6 +525,14 @@ function ChatView({
   // conversation-scoped detail fetcher for the reused Transcript renderer.
   const fetchDetail = React.useCallback((seq: number) => api.conversationMsgDetail(conv.id, seq), [conv.id]);
 
+  React.useEffect(()=>{
+   const revision=controls.state?.history_revision;if(revision===undefined)return;
+   const terminal=controls.state?.latest_run_id&&controls.state.latest_run_status!=="running"?`${controls.state.latest_run_id}:${controls.state.latest_run_status}`:"";
+   if(knownHistory.current!==null&&knownHistory.current!==revision||terminal&&terminal!==knownTerminal.current){historyEpoch.current++;setHistoryVersion(value=>value+1)}
+   knownHistory.current=revision;knownTerminal.current=terminal;
+  },[controls.state?.history_revision,controls.state?.latest_run_id,controls.state?.latest_run_status]);
+
+  async function historyChanged(result:ChatHistoryResult){if(result.session.conversation_id!==String(conv.id)){await onNavigate(result.session);return}historyEpoch.current++;setHistoryVersion(value=>value+1);setRunning(!!result.run_id);onTitleMaybeChanged();void controls.reload()}
   // seq of the most-recent TodoWrite tool call (for the Todo popover); null if none.
   const latestTodoSeq = React.useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -583,7 +576,7 @@ function ChatView({
     return () => {
       live = false;
     };
-  }, [conv.id]);
+  }, [conv.id,historyVersion]);
 
   // A trigger or another tab may start a turn while this conversation is open.
   // A false list snapshot must not stop the tail before its final messages load.
@@ -620,7 +613,7 @@ function ChatView({
       live = false;
       clearTimeout(timer);
     };
-  }, [running, conv.id, onTitleMaybeChanged]);
+  }, [running, conv.id, onTitleMaybeChanged,historyVersion]);
 
   const loadFocusPage = React.useCallback((before: number) => api.conversationHistory(conv.id, before, HISTORY_PAGE), [conv.id]);
   const mergeFocusPage = React.useCallback((page: { items: Activity[]; hasMore: boolean }) => {
@@ -648,7 +641,9 @@ function ChatView({
     const prevH = vp.scrollHeight;
     const prevTop = vp.scrollTop;
     try {
-      const r = await api.conversationHistory(conv.id, earliestRef.current, HISTORY_PAGE);
+      const epoch=historyEpoch.current;
+ const r = await api.conversationHistory(conv.id, earliestRef.current, HISTORY_PAGE);
+ if(epoch!==historyEpoch.current)return;
       if (r.items.length) {
         setMessages((prev) => mergeActivities(r.items, prev));
         earliestRef.current = r.items[0].seq;
@@ -693,70 +688,27 @@ function ChatView({
     if (vp) vp.scrollTop = vp.scrollHeight;
   }, [messages, running, viewport, approvalFocus.state]);
 
-  // Per-conversation token total, live — same accounting as the main-agent
-  // console: completed runs' `result` sum + the in-progress run's latest `usage`.
-  const tokenTotal = React.useMemo(() => {
-    let i = 0,
-      o = 0,
-      cr = 0;
-    let li = 0,
-      lo = 0,
-      lcr = 0;
-    let turns = 0; // Agent loop count equals model calls, each represented by one kind='usage' entry.
-    for (const a of messages) {
-      if (a.kind === "result") {
-        i += a.input_tokens ?? 0;
-        o += a.output_tokens ?? 0;
-        cr += a.cache_read_tokens ?? 0;
-        li = lo = lcr = 0;
-      } else if (a.kind === "usage") {
-        turns += 1;
-        li = a.input_tokens ?? 0;
-        lo = a.output_tokens ?? 0;
-        lcr = a.cache_read_tokens ?? 0;
-      }
-    }
-    const I = i + li,
-      O = o + lo,
-      CR = cr + lcr;
-    return { i: I, o: O, cr: CR, turns, any: I + O + CR > 0 };
-  }, [swLocale, messages]);
+  // Authoritative billing includes previous attempts, independently of occupancy.
+  const billed=controls.state?.billed_usage;
+  const tokenTotal={i:billed?.input_tokens??0,o:billed?.output_tokens??0,cr:billed?.cache_read_tokens??0,turns:billed?.turns??0,any:!!billed&&(billed.input_tokens+billed.output_tokens+billed.cache_read_tokens)>0};
 
-  // pickFiles uploads into this conversation's session dir (sessions/conv-<id>/
-  // uploads/) and queues the returned metadata to send with the next message.
-  async function pickFiles(files: File[]) {
-    if (files.length === 0) return;
-    setUploading(true);
-    try {
-      const r = await api.chatUpload("session", `conv-${conv.id}`, files);
-      setAttachments((prev) => [...prev, ...r.attachments]);
-    } catch (e) {
-      toast.error(swt("interface.m0079") + (e as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function send() {
-    const msg = input.trim();
-    const atts = attachments;
+  async function send(explicit?: "send"|"queue"|"steer") {
+    const original=input;let msg=input.trim();const atts=attachmentState.uploaded;
     if (side.handleCommand(msg, () => setInput(""))) return;
-    if ((!msg && atts.length === 0) || sending || running) return;
+    const command=parseChatCommand(msg);
+ if(command?.kind==="context"||command?.kind==="usage"){contextInspector.current?.open();setInput("");return}
+ if(command?.kind==="compact"){if(await contextInspector.current?.compact(command.options))setInput("");return}
+    if(command?.kind==="invalid"){toast.error(swt("interface.chatCommandInvalid"));return}
+    let mode=explicit??(running||controls.state?.active||controls.state?.context_changing||controls.state?.paused||controls.state?.inputs.some(a=>a.status==="queued")?"queue":"send");
+    if(command){if(command.kind==="queue"||command.kind==="steer"){mode=command.kind;msg=command.text}else if(command.kind==="retry"){if(!controls.state?.capabilities.retry){toast.error(swt("interface.chatControlUnavailable"));return}try{const result=await controls.retry(newChatID());await historyChanged(result);setInput("")}catch(error){toast.error((error as Error).message)}return}else if(command.kind==="branch"){if(!controls.state?.capabilities.branch){toast.error(swt("interface.chatControlUnavailable"));return}try{const result=await controls.branch({kind:"branch",client_request_id:newChatID(),turn_id:controls.state.latest_turn_id,title:command.title,expected_revision:controls.state.revision});await historyChanged(result);setInput("")}catch(error){toast.error((error as Error).message)}return}else{toast.error(swt("interface.chatControlUnavailable"));return}}
+    if ((!msg && !atts.length) || sending || !attachmentState.canSubmit) return;
+    if(mode==="steer"&&(!controls.state?.active||attachmentState.items.length)){toast.error(swt("interface.chatControlUnavailable"));return}
     setSending(true);
-    setInput("");
-    setAttachments([]);
     try {
-      await api.sendConversationMessage(conv.id, msg, atts.length ? atts : undefined);
-      // The live loop pulls the persisted human turn immediately. Sharing that
-      // fetch avoids racing a separate post-send request against the poller.
-      setRunning(true);
-    } catch (e) {
-      toast.error(swt("interface.m0078") + (e as Error).message);
-      setInput(msg); // restore so the user doesn't lose their text
-      setAttachments(atts); // and their attachments
-    } finally {
-      setSending(false);
-    }
+      await controls.submit(mode,{text:msg,attachments:atts},mode==="steer"?controls.state?.active?.id:undefined);
+      attachmentState.clear();setInput("");
+      if(mode==="send")setRunning(true);
+    } catch(e){toast.error(swt("interface.m0078")+(e as Error).message);setInput(original)}finally{setSending(false)}
   }
 
   // stop aborts the in-flight run for this conversation. running flips to false on
@@ -806,6 +758,7 @@ function ChatView({
       <ApprovalExecutionFocus focus={approvalFocus} history={focusHistory} />
 
       {/* messages */}
+      <ChatParentLink controls={controls} onNavigate={onNavigate}/>
       <ScrollArea type="auto" className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
         <div className="min-w-0 max-w-full px-4 py-3" ref={contentRef}>
           {messages.length === 0 && !running ? (
@@ -816,26 +769,28 @@ function ChatView({
               {hasMore && (
                 <div className="text-muted-foreground/70 pb-2 text-center text-[11px]">{swt("interface.m0089")}</div>
               )}
-              <Transcript activity={messages} live={running} chat fetchDetail={fetchDetail} focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined} />
+              <Transcript renderActions={activity=><ChatMessageActions activity={activity} controls={controls} onChanged={historyChanged}/>} activity={messages} live={running} chat fetchDetail={fetchDetail} focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined} />
             </>
           )}
         </div>
       </ScrollArea>
 
+      <ChatContextInspector ref={contextInspector} controls={controls}/>
+      <ChatQueue controls={controls}/>
       <Composer
         value={input}
         onChange={setInput}
-        onSend={send}
-        disabled={running || sending}
+        onSend={()=>void send()}
+        disabled={sending}
+        queueMode={!!(running||controls.state?.active||controls.state?.context_changing||controls.state?.paused||controls.state?.inputs.some(a=>a.status==="queued"))}
+        onSteer={controls.state?.capabilities.steer?()=>void send("steer"):undefined}
         allowBtw
         placeholder={running ? swt("interface.m0090") : swt("interface.m0084")}
-        running={running}
+        running={running||!!controls.state?.active}
         onStop={stop}
         stopDisabled={stopping}
-        attachments={attachments}
-        onPickFiles={pickFiles}
-        onRemoveAttachment={(path) => setAttachments((p) => p.filter((x) => x.path !== path))}
-        uploading={uploading}
+        attachmentState={attachmentState}
+        draftKey={draftKey}
       />
       <LLMProfileRow
         profiles={profiles}
@@ -1527,6 +1482,7 @@ export default function ChatPage() {
               initial={pendingByConv[selected.id]}
               onTitleMaybeChanged={reloadConvs}
               onConvUpdated={reloadConvs}
+              onNavigate={async ref=>{await reloadConvs();selectConversation(Number(ref.conversation_id))}}
             />
           ) : sourceRequested ? (
             <div role="status" className="p-6 text-sm text-muted-foreground">

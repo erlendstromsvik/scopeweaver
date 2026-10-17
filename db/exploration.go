@@ -2,9 +2,11 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/locale"
 	"sort"
 	"strconv"
@@ -85,17 +87,21 @@ type Node struct {
 
 // Activity is one worker execution step (= old task_activity).
 type Activity struct {
-	ID        int64           `json:"id"`
-	NodeID    *int64          `json:"node_id,omitempty"`
-	Worker    string          `json:"worker,omitempty"`
-	Kind      string          `json:"kind,omitempty"`
-	Tool      string          `json:"tool,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	IsError   bool            `json:"is_error"`
-	Summary   string          `json:"summary,omitempty"`
-	Detail    string          `json:"-"` // full blob; lazy-loaded, omitted from list payloads
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	TurnID         string          `json:"turn_id,omitempty"`
+	RunID          string          `json:"run_id,omitempty"`
+	ActiveAttempt  *bool           `json:"active_attempt,omitempty"`
+	HistoryMutable *bool           `json:"history_mutable,omitempty"`
+	ID             int64           `json:"id"`
+	NodeID         *int64          `json:"node_id,omitempty"`
+	Worker         string          `json:"worker,omitempty"`
+	Kind           string          `json:"kind,omitempty"`
+	Tool           string          `json:"tool,omitempty"`
+	ToolUseID      string          `json:"tool_use_id,omitempty"`
+	IsError        bool            `json:"is_error"`
+	Summary        string          `json:"summary,omitempty"`
+	Detail         string          `json:"-"` // full blob; lazy-loaded, omitted from list payloads
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
 	// Token usage — set only on the terminal kind='result' record; nil elsewhere.
 	InputTokens      *int  `json:"input_tokens,omitempty"`
 	OutputTokens     *int  `json:"output_tokens,omitempty"`
@@ -1209,10 +1215,10 @@ func (s *ExplorationStore) AppendActivity(a Activity) (int64, error) {
 	}
 	var id int64
 	err := s.db.QueryRow(`
-INSERT INTO activity(exploration_id, node_id, worker, kind, tool, tool_use_id, is_error, summary, detail, metadata, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg)
-VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),NULLIF($6,''),$7,NULLIF($8,''),NULLIF($9,''),$10,$11,$12,$13,$14,$15)
+INSERT INTO activity(exploration_id, node_id, worker, kind, tool, tool_use_id, is_error, summary, detail, metadata, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg,turn_id,run_id,active_attempt,history_mutable)
+VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),NULLIF($6,''),$7,NULLIF($8,''),NULLIF($9,''),$10,$11,$12,$13,$14,$15,NULLIF($16,''),NULLIF($17,''),$18,$19)
 RETURNING id`, s.expID, a.NodeID, utf8Clean(a.Worker), utf8Clean(a.Kind), utf8Clean(a.Tool), utf8Clean(a.ToolUseID), a.IsError, utf8Clean(a.Summary), utf8Clean(a.Detail),
-		metadata, a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens, a.MainSeg).Scan(&id)
+		metadata, a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens, a.MainSeg, a.TurnID, a.RunID, a.ActiveAttempt, a.HistoryMutable).Scan(&id)
 	return id, err
 }
 
@@ -1482,13 +1488,13 @@ func (s *ExplorationStore) ActivityList(nodeID *int64, sinceID int64, limit int)
 	}
 	var rows *sql.Rows
 	var err error
-	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,''), metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg`
+	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,''), metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg,COALESCE(turn_id,''),COALESCE(run_id,''),active_attempt,history_mutable`
 	if nodeID != nil {
 		rows, err = s.db.Query(`SELECT `+cols+`
-FROM activity WHERE exploration_id=$1 AND node_id=$2 AND id>$3 ORDER BY id LIMIT $4`, s.expID, *nodeID, sinceID, limit)
+FROM activity WHERE exploration_id=$1 AND active_attempt IS DISTINCT FROM false AND node_id=$2 AND id>$3 ORDER BY id LIMIT $4`, s.expID, *nodeID, sinceID, limit)
 	} else {
 		rows, err = s.db.Query(`SELECT `+cols+`
-FROM activity WHERE exploration_id=$1 AND id>$2 ORDER BY id LIMIT $3`, s.expID, sinceID, limit)
+FROM activity WHERE exploration_id=$1 AND active_attempt IS DISTINCT FROM false AND id>$2 ORDER BY id LIMIT $3`, s.expID, sinceID, limit)
 	}
 	if err != nil {
 		return nil, sinceID, err
@@ -1499,7 +1505,7 @@ FROM activity WHERE exploration_id=$1 AND id>$2 ORDER BY id LIMIT $3`, s.expID, 
 	for rows.Next() {
 		var a Activity
 		if err := rows.Scan(&a.ID, &a.NodeID, &a.Worker, &a.Kind, &a.Tool, &a.ToolUseID, &a.IsError, &a.Summary, &a.Metadata, &a.CreatedAt,
-			&a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg); err != nil {
+			&a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg, &a.TurnID, &a.RunID, &a.ActiveAttempt, &a.HistoryMutable); err != nil {
 			return nil, sinceID, err
 		}
 		if a.ID > cursor {
@@ -1592,7 +1598,7 @@ func (s *ExplorationStore) ActivityPage(f ActivitySessionFilter, before int64, l
 	if limit <= 0 {
 		limit = 200
 	}
-	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,''), metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg`
+	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,''), metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg,COALESCE(turn_id,''),COALESCE(run_id,''),active_attempt,history_mutable`
 	args := []any{s.expID}
 	cond, cargs := f.cond(len(args) + 1)
 	args = append(args, cargs...)
@@ -1601,7 +1607,7 @@ func (s *ExplorationStore) ActivityPage(f ActivitySessionFilter, before int64, l
 	limitArg := len(args) + 1
 	args = append(args, limit+1) // one extra row to detect older history
 	q := fmt.Sprintf(`SELECT `+cols+`
-FROM activity WHERE exploration_id=$1%s AND ($%d <= 0 OR id < $%d)
+FROM activity WHERE exploration_id=$1 AND active_attempt IS DISTINCT FROM false%s AND ($%d <= 0 OR id < $%d)
 ORDER BY id DESC LIMIT $%d`, cond, beforeArg, beforeArg, limitArg)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -1612,7 +1618,7 @@ ORDER BY id DESC LIMIT $%d`, cond, beforeArg, beforeArg, limitArg)
 	for rows.Next() {
 		var a Activity
 		if err := rows.Scan(&a.ID, &a.NodeID, &a.Worker, &a.Kind, &a.Tool, &a.ToolUseID, &a.IsError, &a.Summary, &a.Metadata, &a.CreatedAt,
-			&a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg); err != nil {
+			&a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg, &a.TurnID, &a.RunID, &a.ActiveAttempt, &a.HistoryMutable); err != nil {
 			return nil, false, err
 		}
 		desc = append(desc, a)
@@ -1701,14 +1707,14 @@ type MainSession struct {
 // CurrentMainSeg returns the highest main-session segment (0 when none created yet).
 func (s *ExplorationStore) CurrentMainSeg() (int, error) {
 	var seg int
-	err := s.db.QueryRow(`SELECT COALESCE(MAX(seq),0) FROM main_sessions WHERE exploration_id=$1`, s.expID).Scan(&seg)
+	err := s.db.QueryRow(`SELECT COALESCE(MAX(seq),0) FROM main_sessions WHERE exploration_id=$1 AND NOT preparing`, s.expID).Scan(&seg)
 	return seg, err
 }
 
 // ListMainSessions returns every main-session segment newest-first, always including
 // the implicit original segment 0. Segment 0 carries no stored timestamp.
 func (s *ExplorationStore) ListMainSessions() ([]MainSession, error) {
-	rows, err := s.db.Query(`SELECT seq, created_at FROM main_sessions WHERE exploration_id=$1 ORDER BY seq DESC`, s.expID)
+	rows, err := s.db.Query(`SELECT seq, created_at FROM main_sessions WHERE exploration_id=$1 AND NOT preparing ORDER BY seq DESC`, s.expID)
 	if err != nil {
 		return nil, err
 	}
@@ -1731,13 +1737,34 @@ func (s *ExplorationStore) ListMainSessions() ([]MainSession, error) {
 // NewMainSession creates the next main-session segment (seq = current+1) and returns
 // it. It touches only main_sessions — the task's exploration graph/assets/goal are
 // untouched, so the new session starts with a clean transcript over the same task.
-func (s *ExplorationStore) NewMainSession() (MainSession, error) {
-	var m MainSession
-	err := s.db.QueryRow(`
-INSERT INTO main_sessions(exploration_id, seq)
-VALUES ($1, COALESCE((SELECT MAX(seq) FROM main_sessions WHERE exploration_id=$1),0)+1)
-RETURNING seq, created_at`, s.expID).Scan(&m.Seq, &m.CreatedAt)
-	return m, err
+func (s *ExplorationStore) NewMainSession() (out MainSession, err error) {
+	ctx := context.Background()
+	var taskID int64
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE exploration_id=$1`, s.expID).Scan(&taskID)
+	allocate := func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `INSERT INTO main_sessions(exploration_id,seq) VALUES($1,(SELECT COALESCE(MAX(seq),0)+1 FROM main_sessions WHERE exploration_id=$1)) RETURNING seq,created_at`, s.expID).Scan(&out.Seq, &out.CreatedAt)
+	}
+	if err == nil {
+		err = s.db.chatTx(ctx, chatstate.SessionRef{TaskID: taskID, ExplorationID: s.expID}, allocate)
+		return
+	}
+	if err != sql.ErrNoRows {
+		return
+	}
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return out, e
+	}
+	defer tx.Rollback()
+	var id int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM explorations WHERE id=$1 FOR UPDATE`, s.expID).Scan(&id); err != nil {
+		return
+	}
+	if err = allocate(tx); err != nil {
+		return
+	}
+	err = tx.Commit()
+	return
 }
 
 // ActivityDetail lazily returns the full detail blob for one step.

@@ -701,12 +701,14 @@ function ExecView({
   chat,
   fetchDetail,
   focusedSeq,
+  renderActions,
 }: {
   activity: Activity[];
   taskId?: string;
   chat?: boolean;
   fetchDetail?: (seq: number) => Promise<string>;
   focusedSeq?: number;
+  renderActions?: (activity:Activity)=>React.ReactNode;
 }) {
   "use no memo";
   const { t: swt, locale: swLocale } = useI18n();
@@ -728,9 +730,9 @@ function ExecView({
             <span className="h-px flex-1 bg-border" />
           </div>
         ) : g.type === "user" ? (
-          <UserRow key={"u" + g.key} step={g.step} intent={g.intent} getDetail={getDetail} />
+          <React.Fragment key={"u"+g.key}><UserRow step={g.step} intent={g.intent} getDetail={getDetail}/>{renderActions?.(g.step)}</React.Fragment>
         ) : g.type === "answer" ? (
-          <AnswerBlock key={"a" + g.key} step={g.step} getDetail={getDetail} />
+          <React.Fragment key={"a"+g.key}><AnswerBlock step={g.step} getDetail={getDetail}/>{renderActions?.(g.step)}</React.Fragment>
         ) : g.type === "tool" ? (
           <ToolBlock
             key={"t" + g.key}
@@ -759,6 +761,7 @@ export function Transcript({
   chat,
   fetchDetail,
   focusedSeq,
+  renderActions,
 }: {
   activity: Activity[];
   live?: boolean;
@@ -766,6 +769,7 @@ export function Transcript({
   chat?: boolean;
   fetchDetail?: (seq: number) => Promise<string>;
   focusedSeq?: number;
+  renderActions?: (activity:Activity)=>React.ReactNode;
 }) {
   "use no memo";
   const { t: swt, locale: swLocale } = useI18n();
@@ -784,7 +788,7 @@ export function Transcript({
   }, [focusedSeq]);
   return (
     <div ref={transcriptRef} className="flex flex-col gap-1" style={focusPadding ? { paddingBlock: focusPadding } : undefined}>
-      <ExecView activity={activity} taskId={taskId} chat={chat} fetchDetail={fetchDetail} focusedSeq={focusedSeq} />
+      <ExecView renderActions={renderActions} activity={activity} taskId={taskId} chat={chat} fetchDetail={fetchDetail} focusedSeq={focusedSeq} />
       {live && (
         <div className="flex items-center gap-2 pl-2 pt-1 text-xs text-muted-foreground">
           <span className="flex gap-1">

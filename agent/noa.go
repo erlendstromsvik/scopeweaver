@@ -27,29 +27,31 @@ func noaWarn(session string) func(string) {
 //
 // As an experiment, setup failure must not interrupt tasks: warn and retain built-in compaction.
 // On success clear opts.Compaction to avoid the warning about two context managers.
-func enableNoa(opts *agentcore.Options, enabled func() bool, archiveRoot, sessionID string, onWarn func(string)) {
+func enableNoa(opts *agentcore.Options, enabled func() bool, archiveRoot, sessionID string, onWarn func(string)) *noaadapter.Session {
 	if enabled == nil || !enabled() {
-		return
+		return nil
 	}
 	if _, local := opts.Compactor.(*localCompactor); local {
 		if onWarn != nil {
 			onWarn("Native Ollama contexts up to 64K retain the 72% compaction policy; experimental noa is skipped")
 		}
-		return
+		return nil
 	}
 	if opts.OnWarn == nil {
 		opts.OnWarn = onWarn
 	}
-	if err := noaadapter.Enable(opts, noaadapter.Options{
+	session, err := noaadapter.EnableWithSession(opts, noaadapter.Options{
 		ArchiveBaseDir: filepath.Join(archiveRoot, "noa"),
 		SessionID:      sessionID,
 		OnWarn:         onWarn,
-	}); err != nil {
+	})
+	if err != nil {
 		if onWarn != nil {
 			onWarn(locale.Text(locale.ServerDefault(), "Could not enable noa compaction; falling back to built-in compaction: ") + err.Error())
 		}
-		return
+		return nil
 	}
 	// Compactor supersedes Compaction; explicitly clear the latter to avoid repeated warnings.
 	opts.Compaction = nil
+	return session
 }

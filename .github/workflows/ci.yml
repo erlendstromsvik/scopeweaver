@@ -1,11 +1,26 @@
 name: checks
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 permissions:
   contents: read
 jobs:
+  branch-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test contribution branch policy
+        run: bash e2e/branch-policy.sh
+      - name: Check pull request route
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/check-branch-policy.sh
   agent-adapter:
     runs-on: ubuntu-latest
     services:
@@ -39,6 +54,65 @@ jobs:
           SCOPEWEAVER_ADAPTER_E2E: "1"
           ARTEX_TEST_DSN: postgres://scopeweaver_test:test_only_password@localhost:5432/scopeweaver_adapter_e2e?sslmode=disable
         run: go test ./server -run '^TestAgentAdapterE2E$' -count=1 -v
+  chat-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scopeweaver_test
+          POSTGRES_PASSWORD: test_only_password
+          POSTGRES_DB: scopeweaver_test_chat_browser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U scopeweaver_test -d scopeweaver_test_chat_browser"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            e2e/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: npm ci
+        working-directory: web
+      - run: npm run build:static
+        working-directory: web
+      - run: npm ci
+        working-directory: e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: e2e
+      - name: Verify draft preservation with a separate disposable database
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: scopeweaver_test
+          PGPASSWORD: test_only_password
+          ARTEX_TEST_DSN: postgres://scopeweaver_test:test_only_password@localhost:5432/scopeweaver_test_chat_draft?sslmode=disable
+          SCOPEWEAVER_CHAT_E2E: "1"
+          CHAT_E2E_SUITE: draft
+        run: |
+          createdb scopeweaver_test_chat_draft
+          go test ./server -run '^TestChatControlsE2E$' -count=1 -timeout 12m -v
+      - name: Verify chat controls, recovery, context and document paste
+        env:
+          ARTEX_TEST_DSN: postgres://scopeweaver_test:test_only_password@localhost:5432/scopeweaver_test_chat_browser?sslmode=disable
+          SCOPEWEAVER_CHAT_E2E: "1"
+          CHAT_E2E_SUITE: standard
+        run: go test ./server -run '^TestChatControlsE2E$' -count=1 -timeout 12m -v
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chat-browser-results
+          path: dist/chat-e2e
+          if-no-files-found: ignore
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -80,6 +154,8 @@ jobs:
         run: go test ./evidence -run '^Test(WriteBody|CommitBodyFile)' -count=1 -v
       - name: Test native Python and skill paths
         run: go test ./server -run '^Test(ExecPython|DetectPython.*|SkillRelPath|SkillFilePathsUseForwardSlashes)$' -count=1 -v
+      - name: Test native chat attachment copies
+        run: go test ./server -run '^TestCopyChatAttachments' -count=1 -v
   backend:
     runs-on: ubuntu-latest
     services:
@@ -144,7 +220,7 @@ jobs:
             database="scopeweaver_test_${index}"
             createdb "$database"
             ARTEX_PG_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" "$RUNNER_TEMP/init-test-db"
-            if ! ARTEX_TEST_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" go test -p 1 "$package" -count=1; then
+            if ! ARTEX_TEST_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/${database}?sslmode=disable" go test -p 1 "$package" -count=1 -v; then
               status=1
             fi
             dropdb --force "$database"

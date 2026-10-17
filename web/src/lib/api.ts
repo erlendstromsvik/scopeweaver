@@ -119,6 +119,8 @@ function getToken(): string | null {
   return localStorage.getItem("artex_token");
 }
 
+export class HTTPError extends Error { constructor(message:string,readonly status:number){super(message);this.name="HTTPError";} }
+
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (MOCK) return mockHandle<T>(init?.method ?? "GET", path, init?.body ?? null);
   const token = getToken();
@@ -149,7 +151,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based fallback for empty or non-JSON error responses.
     }
-    throw new Error(message);
+    throw new HTTPError(message,r.status);
   }
   if (r.status === 204) return undefined as T;
   return r.json();

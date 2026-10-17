@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1516,7 +1517,18 @@ func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResul
 
 	var fileStage *taskFileDeleteStage
 	if opts.DeleteFiles {
-		fileStage, err = stageTaskFiles(m.dir, id, registered.ExplorationID)
+		revisions, e := m.pg.TaskChatTranscriptRevisions(context.Background(), n)
+		if e != nil {
+			return result, e
+		}
+		var revisionFiles []string
+		for _, r := range revisions {
+			if r.TranscriptID != "chat-rev-"+r.ID || strings.ContainsAny(r.ID, "/\\.") {
+				return result, fmt.Errorf("invalid chat revision")
+			}
+			revisionFiles = append(revisionFiles, r.TranscriptID+".jsonl", r.TranscriptID+".jsonl.manifest.json")
+		}
+		fileStage, err = stageTaskFiles(m.dir, id, registered.ExplorationID, revisionFiles...)
 		if err != nil {
 			return result, err
 		}
@@ -1638,7 +1650,7 @@ type taskFileDeleteStage struct {
 // stageTaskFiles atomically renames the task workspace and owned transcripts to
 // a same-filesystem staging directory. The trailing dash in the transcript
 // prefix is significant: exploration 12 must not match exploration 123.
-func stageTaskFiles(dataDir, taskID string, explorationID int64) (*taskFileDeleteStage, error) {
+func stageTaskFiles(dataDir, taskID string, explorationID int64, revisionFiles ...string) (*taskFileDeleteStage, error) {
 	stage := &taskFileDeleteStage{}
 	var targets []string
 	taskDir := filepath.Join(dataDir, "tasks", taskID)
@@ -1663,6 +1675,17 @@ func stageTaskFiles(dataDir, taskID string, explorationID int64) (*taskFileDelet
 			continue
 		}
 		targets = append(targets, filepath.Join(transcriptDir, name))
+	}
+	for _, name := range revisionFiles {
+		if filepath.Base(name) != name {
+			return nil, fmt.Errorf("invalid revision filename")
+		}
+		path := filepath.Join(transcriptDir, name)
+		if _, err := os.Lstat(path); err == nil {
+			targets = append(targets, path)
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 	if len(targets) == 0 {
 		stage.done = true

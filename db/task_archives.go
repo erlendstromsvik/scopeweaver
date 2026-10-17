@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	TaskArchiveFormatVersion       = 3
+	TaskArchiveFormatVersion       = 4
 	TaskArchiveLegacyFormatVersion = 1
 	TaskArchiveLLMRecordsPath      = "database/llm_records.ndjson"
 )
@@ -619,6 +619,14 @@ func (d *DB) snapshotTaskArchive(taskID int64, llmRecords io.Writer) (*TaskArchi
 		counts[query.name] = count
 	}
 
+	chatTables, err := SnapshotChatControls(context.Background(), tx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	for table, raw := range chatTables {
+		tables[table] = raw
+		counts[table] = int64(rawRowCount(raw))
+	}
 	assetIDs, exclusiveAssetIDs, hosts, exclusiveHosts, err := archiveAssetMetadata(tx, taskID, expID, tables["assets"])
 	if err != nil {
 		return nil, err

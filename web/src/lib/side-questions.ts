@@ -1,3 +1,4 @@
+import {sideQuestionURL} from "./side-question-url";
 import { http } from "@/lib/api";
 
 export interface SideModel {
@@ -45,7 +46,7 @@ export const sideAPI = {
   // and React rethrows those errors later during render, outside the caller's catch,
   // causing the error boundary to replace the whole page.
   history: async (parent: string, before = 0) => {
-    const data = await request<Partial<SideHistory>>(`${parent}/side-questions?before=${before}`);
+    const data = await request<Partial<SideHistory>>(sideQuestionURL(parent,before));
     return {
       items: Array.isArray(data?.items) ? data.items : [],
       current: data?.current ?? null,
@@ -54,8 +55,8 @@ export const sideAPI = {
     } satisfies SideHistory;
   },
   ask: (parent: string, question: string, client_request_id: string) =>
-    request<SideExchange>(`${parent}/side-questions`, "POST", { question, client_request_id }),
-  clear: (parent: string) => request(`${parent}/side-questions`, "DELETE"),
+    request<SideExchange>(sideQuestionURL(parent), "POST", { question, client_request_id }),
+  clear: (parent: string) => request(sideQuestionURL(parent), "DELETE"),
   cancel: (id: string) => request(`/api/side-questions/${id}/cancel`, "POST"),
 };
 

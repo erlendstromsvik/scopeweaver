@@ -11,21 +11,23 @@ import (
 )
 
 type Exchange struct {
-	ID         string      `json:"id"`
-	SessionKey string      `json:"-"`
-	ClientID   string      `json:"client_request_id"`
-	Generation int64       `json:"-"`
-	Question   string      `json:"question"`
-	Answer     string      `json:"answer"`
-	Status     string      `json:"status"`
-	Error      string      `json:"error,omitempty"`
-	Model      Model       `json:"model"`
-	SnapshotAt time.Time   `json:"snapshot_at"`
-	CreatedAt  time.Time   `json:"created_at"`
-	Sequence   int64       `json:"sequence"`
-	Usage      llm.Usage   `json:"usage"`
-	Ordinal    int64       `json:"ordinal"`
-	Context    ContextInfo `json:"context"`
+	HistoryRevision int64       `json:"history_revision"`
+	SourceRunID     string      `json:"source_run_id,omitempty"`
+	ID              string      `json:"id"`
+	SessionKey      string      `json:"-"`
+	ClientID        string      `json:"client_request_id"`
+	Generation      int64       `json:"-"`
+	Question        string      `json:"question"`
+	Answer          string      `json:"answer"`
+	Status          string      `json:"status"`
+	Error           string      `json:"error,omitempty"`
+	Model           Model       `json:"model"`
+	SnapshotAt      time.Time   `json:"snapshot_at"`
+	CreatedAt       time.Time   `json:"created_at"`
+	Sequence        int64       `json:"sequence"`
+	Usage           llm.Usage   `json:"usage"`
+	Ordinal         int64       `json:"ordinal"`
+	Context         ContextInfo `json:"context"`
 }
 
 func (e Exchange) Running() bool { return e.Status == "running" }

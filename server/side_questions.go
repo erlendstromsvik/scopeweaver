@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/chatstate"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/artex/locale"
@@ -31,18 +32,20 @@ type sideRun struct {
 	done   chan struct{}
 }
 type sideQuestionState struct {
-	mu           sync.Mutex
-	commands     sync.Mutex // short admission / clear operations only, never inference
-	pending      map[string]sidequestion.Snapshot
-	latest       map[string]sidequestion.Snapshot
-	seen         map[string][2]int64
-	runs         map[string]sideRun
-	done         chan struct{}
-	outputTokens int
+	mu             sync.Mutex
+	commands       sync.Mutex // short admission / clear operations only, never inference
+	closing        bool       // protected by commands
+	contextPending map[string]pendingChatContext
+	pending        map[string]sidequestion.Snapshot
+	latest         map[string]sidequestion.Snapshot
+	seen           map[string][2]int64
+	runs           map[string]sideRun
+	done           chan struct{}
+	outputTokens   int
 }
 
 func sideModel(cfg agent.Config, id int64, name string) sidequestion.Model {
-	b, _ := json.Marshal([]any{cfg.Format, cfg.BaseURL, cfg.Model, cfg.ThinkingType, cfg.ReasoningEffort, cfg.Stream, cfg.MaxTokensField, cfg.SessionHeaderKey})
+	b, _ := json.Marshal([]any{cfg.Format, cfg.BaseURL, cfg.Model, cfg.ThinkingType, cfg.ReasoningEffort, cfg.Stream, cfg.MaxTokensField, cfg.SessionHeaderKey, cfg.MaxTokens, cfg.CompactionWindow()})
 	h := sha256.Sum256(b)
 	return sidequestion.Model{ProfileID: id, Name: name, Format: string(cfg.Format), Model: cfg.Model, Identity: hex.EncodeToString(h[:]), Streaming: cfg.Stream, WindowTokens: cfg.CompactionWindow()}
 }
@@ -52,7 +55,7 @@ func bindSideProvider(p llm.Provider, cfg agent.Config, id int64, name string) l
 }
 
 func (s *Server) initSideQuestions() {
-	s.side = &sideQuestionState{pending: map[string]sidequestion.Snapshot{}, latest: map[string]sidequestion.Snapshot{}, seen: map[string][2]int64{}, runs: map[string]sideRun{}, done: make(chan struct{})}
+	s.side = &sideQuestionState{contextPending: map[string]pendingChatContext{}, pending: map[string]sidequestion.Snapshot{}, latest: map[string]sidequestion.Snapshot{}, seen: map[string][2]int64{}, runs: map[string]sideRun{}, done: make(chan struct{})}
 	if n, err := strconv.Atoi(os.Getenv("ARTEX_BTW_MAX_OUTPUT_TOKENS")); err == nil && n >= 256 && n <= 32768 {
 		s.side.outputTokens = n
 	}
@@ -75,6 +78,7 @@ func (s *Server) initSideQuestions() {
 		s.side.seen[key] = [2]int64{snap.RunID, snap.Version}
 		s.side.pending[key] = snap
 	})
+	s.ctx = agent.WithChatContextObserver(s.ctx, s.captureChatContext)
 	go func() {
 		defer close(s.side.done)
 		tick := time.NewTicker(250 * time.Millisecond)
@@ -83,17 +87,19 @@ func (s *Server) initSideQuestions() {
 			select {
 			case <-tick.C:
 				s.flushSideSnapshots()
+				s.flushChatContexts()
 			case <-s.ctx.Done():
 				s.flushSideSnapshots()
+				s.flushChatContexts()
 				return
 			}
 		}
 	}()
 }
 
-func (s *Server) flushSideSnapshots() {
+func (s *Server) flushSideSnapshots() error {
 	if s.side == nil || s.m.pg == nil {
-		return
+		return nil
 	}
 	s.side.commands.Lock()
 	defer s.side.commands.Unlock()
@@ -101,12 +107,13 @@ func (s *Server) flushSideSnapshots() {
 	pending := s.side.pending
 	s.side.pending = map[string]sidequestion.Snapshot{}
 	s.side.mu.Unlock()
+	var flushErr error
 	for key, snap := range pending {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		err := s.m.pg.SaveSideSnapshot(ctx, snap)
 		cancel()
 		s.side.mu.Lock()
-		if err == nil || errors.Is(err, db.ErrSideParentGone) {
+		if err == nil || errors.Is(err, chatstate.ErrConflict) || errors.Is(err, chatstate.ErrGone) || errors.Is(err, db.ErrSideParentGone) {
 			if cur, ok := s.side.latest[key]; ok && cur.RunID == snap.RunID && cur.Version == snap.Version {
 				delete(s.side.latest, key)
 			}
@@ -114,10 +121,12 @@ func (s *Server) flushSideSnapshots() {
 			s.side.pending[key] = snap
 		}
 		s.side.mu.Unlock()
-		if err != nil && !errors.Is(err, db.ErrSideParentGone) {
+		if err != nil && !errors.Is(err, db.ErrSideParentGone) && !errors.Is(err, chatstate.ErrGone) && !errors.Is(err, chatstate.ErrConflict) {
+			flushErr = errors.Join(flushErr, fmt.Errorf("side snapshot %s: %w", key, err))
 			log.Printf(locale.Text(locale.ServerDefault(), "[btw] checkpoint persistence: %v"), err)
 		}
 	}
+	return flushErr
 }
 
 func (s *Server) sideSnapshot(ctx context.Context, p sidequestion.Parent) (*sidequestion.Snapshot, error) {
@@ -125,7 +134,11 @@ func (s *Server) sideSnapshot(ctx context.Context, p sidequestion.Parent) (*side
 	snap, ok := s.side.latest[p.Key()]
 	s.side.mu.Unlock()
 	if ok {
-		return &snap, nil
+		if err := s.m.pg.ValidateSideSnapshot(ctx, snap); err == nil {
+			return &snap, nil
+		} else if !errors.Is(err, chatstate.ErrConflict) && !errors.Is(err, db.ErrSideParentGone) {
+			return nil, err
+		}
 	}
 	return s.m.pg.SideSnapshot(ctx, p.Key())
 }
@@ -247,6 +260,22 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 		return p, false
 	}
 	p.TaskID, p.ExplorationID = id, t.ExpID
+	if kind == "main" {
+		seg := 0
+		if raw := r.URL.Query().Get("seg"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 0 {
+				writeErr(w, 400, "invalid seg")
+				return p, false
+			}
+			seg = n
+		}
+		if visible, err := s.m.pg.MainChatSegmentAvailable(r.Context(), t.ExpID, seg); err != nil || !visible {
+			chatControlError(w, chatstate.ErrGone)
+			return p, false
+		}
+		p.MainSeg = &seg
+	}
 	if kind == "worker" {
 		iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 		if err != nil || iid <= 0 {
@@ -287,6 +316,10 @@ func (s *Server) registerSideRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p sidequestion.Parent) {
+	if r.Method == http.MethodPost && s.ctx.Err() != nil {
+		writeErr(w, http.StatusServiceUnavailable, "server is shutting down")
+		return
+	}
 	key := p.Key()
 	if r.Method == "DELETE" {
 		s.side.commands.Lock()
@@ -355,6 +388,10 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 	}
 	s.side.commands.Lock()
 	defer s.side.commands.Unlock()
+	if s.side.closing || s.ctx.Err() != nil {
+		writeErr(w, http.StatusServiceUnavailable, "server is shutting down")
+		return
+	}
 	if p.TaskID > 0 && s.engine.IsDeleting(strconv.FormatInt(p.TaskID, 10)) {
 		writeErr(w, 409, locale.Text(responseLanguage(w), "Task is being archived or deleted"))
 		return

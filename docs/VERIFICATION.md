@@ -2,6 +2,42 @@
 
 [한국어](ko/VERIFICATION.md)
 
+## Shared runtime fixes from standalone CLI verification (2026-10-17)
+
+Candidate branch `fix/cli-discovered-runtime-bugs`, based on `dev` commit `3f0ef25`. These are local results; the PR's exact-head hosted checks are separate. This change does not add the standalone CLI or subscription providers to the original application.
+
+- HTTP custom tools now use the complete recording-proxy URL returned by `Manager.ProxyAddr`. Before: `"http://" + addr` turned the controlled fixture's `http://127.0.0.1:<port>` into `http://http://127.0.0.1:<port>`, so the request failed before reaching the proxy. After: `proxyStr = addr` preserves the URL. Real direct, explicitly configured and automatic proxy routes pass; the automatic route failed before the fix.
+- Startup now checks that an existing transcript path is a directory before reading it. The Windows regular-file regression failed before the fix; it now rejects the path while preserving the file. Missing directories remain valid. The new diagnostic is available in English, Korean and Simplified Chinese.
+- Shutdown cancels work, drains HTTP, then waits for admitted chats, side answers and checkpoint publication before closing stores. Previously HTTP drain alone could leave background finalizers writing after database close. Final snapshot/context write errors now propagate, retain pending entries and make process shutdown fail explicitly; deleted/conflicting records remain benign. This bounded drain does not claim to cover every scheduler or engine producer.
+- The cancellation-usage test fixture now creates the existing optional usage table, matching production initialization. Its missing-table failure reproduced before the fixture fix; the corrected fresh-database test preserves the exact usage assertion.
+
+Real PostgreSQL shutdown checks passed 11 tests/subtests, including close/reopen persistence and injected final-write failures. Main-process checks passed 4 tests, covering normal exit 0, restart 75, bounded failures and cleanup on a real occupied-port serve failure. Focused proxy/startup/locale regressions passed. The full Windows backend run had 1,975 passes, 2 failures and 15 skips: one failure was an unchanged symlink-creation privilege limitation; the other exposed the catalog's expected count, updated from 1,980 to 1,982 for the two added diagnostics without removing completeness checks. The corrected catalog is verified separately. Linux/hosted checks must establish the remaining platform results.
+
+Frontend: 65 tests passed and the static export passed using Git Bash for the existing POSIX-style npm script. Agent adapter: 7 tests and syntax checks passed. Focused backend static analysis passed. No user database, real online target or notification delivery was used; each database-writing run created and dropped a separate `scopeweaver_test_*` database. No merge or release is claimed.
+
+## Chat controls and context (2026-10-16)
+
+The author of [PR #29](https://github.com/cskwork/scopeweaver/pull/29) reported the checks below against upstream `6366429`. These are the contributor's historical Linux results, before the combined PR #29/#30 review; they do not establish the later candidate's status or Windows attachment-copy behavior.
+
+| Check | Result |
+| --- | --- |
+| Disposable PostgreSQL 17 race suites (`db`, `server`, `agent`) | 667 top-level tests passed; no race reports |
+| Go packages and static analysis | `go test ./... -count=1` and `go vet ./...` passed |
+| Frontend tests, translations, audit and static export | 65 tests passed; 3,263 EN/KO/zh-Hans keys passed parity checks; 0 audit findings; TypeScript and 31 pages passed |
+| Backend translations | 1,978 production keys passed completeness, parity and printf checks in three languages |
+| Chat browser gate | 60 scenarios passed across EN/KO/zh-Hans, 1440/390 px and standalone/task chat; no uncaught page errors |
+| Embedded-app smoke and dashboard | Smoke E2E and 14 dashboard scenarios passed; no uncaught browser errors |
+| Agent adapter | 7 unit tests, syntax checks and 3 MCP/Pi scenarios passed |
+| Installer and packaging | 8 installer fixtures, 11 Compose cases, 5 packaging archives per language (EN/KO), and 6 release-notice tests passed |
+
+The chat browser cases cover queue edits and ordering, restart acknowledgement, retry/edit/branch, context inspection and compaction, tool steering, and document paste. Backend regressions cover accepted-language persistence, preflight errors, interrupted tool exchanges, abandoned branch preparations and document-read attribution.
+
+You can inspect the model's current context apart from billed conversation usage. Compression keeps the recent completed exchanges you select; you retain the full display history and usage from previous attempts.
+
+The contributor reported one reviewer pass that found six integration defects, followed by repairs to generated-input admission and retest recovery, attachment paths after compaction, legacy display history, and steering delivery controls. The attachment test deletes the parent before the child's next prompt; another checks that rebasing preserves literal manifest text. The contributor reported a failing regression before each repair and a full local rerun. The dashboard reasoning-total assertion was scoped to the summary row because the hover tooltip uses the same label; the reported rerun passed 14 dashboard scenarios.
+
+The reported inference tests used loopback models and disposable databases. Windows runtime, paid providers and remote CI require separate verification. The contributor used Python 3 for the notice fixture, matching CI's interpreter requirement.
+
 ## Native hardening candidate — 2026-10-15
 
 Local and independent checks on `feat/ollama-zero-egress-hardening`, based on main `33b131e`. These are candidate results; exact-head remote CI and PR delivery remain pending. Historical sections below retain their original results.
@@ -212,3 +248,15 @@ The v0.1.0 verification recorded **14 npm audit findings: 1 critical, 9 high and
 - Historical validation documents under `sidequestion/` describe upstream work, not new ScopeWeaver runs.
 
 Current remote checks are available in [GitHub Actions](https://github.com/cskwork/scopeweaver/actions/workflows/ci.yml).
+
+## Chat document paste (2026-10-16)
+
+PR #29 records the following paste checks against a disposable PostgreSQL 17 database and a local backend. These are contributor-reported results from 2026-10-16; current integration evidence is recorded separately:
+
+- The frontend suite passed 52 tests; the production static export passed.
+- Clipboard browser checks passed 12 combinations: standalone/task chat, EN/KO/zh-Hans and 1440/390 px.
+- Cases covered rapid document pastes with one draft owner, accompanying text, native 3,000-character insertion and undo, Unicode preview, draft restoration, upload retry, navigation, mentions, IME and both send preferences. Pasting submitted no messages.
+- The contributor disabled the React paste handler to confirm the browser check failed on the missing second attachment chip, then restored it and reran the check.
+- The backend smoke suite passed the clipboard checks and Ollama loopback fixtures with no uncaught page errors.
+
+The file cases supply browser File objects through paste events. The text and undo cases use the Chromium clipboard and keyboard paste.

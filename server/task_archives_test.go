@@ -33,13 +33,14 @@ func TestTaskArchiveAPIQueueListAndLimits(t *testing.T) {
 		_ = m.pg.DeleteTask(taskID)
 	}()
 
-	// Start with an already-cancelled context so the background archive worker
-	// exits before these route-contract assertions enqueue work.
+	// Complete startup recovery before stopping background workers, so these
+	// route-contract assertions can enqueue work without it being consumed.
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	dataDir := t.TempDir()
 	s := New(ctx, m, dataDir, dataDir, dataDir)
+	cancel()
 	s.archiveWG.Wait()
+	<-s.side.done
 	token, err := signJWT(s.jwtKey)
 	if err != nil {
 		t.Fatal(err)
