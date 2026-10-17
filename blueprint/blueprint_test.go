@@ -440,44 +440,44 @@ llm:
 }
 
 // TestProfileValidValues checks every valid dial value loads clean and parses
-// into the struct (F.1).
+// into the struct (F.1b).
 func TestProfileValidValues(t *testing.T) {
-	for _, v := range allowedIntensity {
-		t.Run("intensity="+v, func(t *testing.T) {
-			bp, _, err := Parse([]byte(profileBaseYAML("profile: { intensity: " + v + " }\n")))
+	for _, v := range allowedEffort {
+		t.Run("effort="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { effort: " + v + " }\n")))
 			if err != nil {
-				t.Fatalf("intensity %q: unexpected error: %v", v, err)
+				t.Fatalf("effort %q: unexpected error: %v", v, err)
 			}
-			if bp.Profile.Intensity != v {
-				t.Errorf("Profile.Intensity = %q, want %q", bp.Profile.Intensity, v)
+			if bp.Profile.Effort != v {
+				t.Errorf("Profile.Effort = %q, want %q", bp.Profile.Effort, v)
 			}
 		})
 	}
-	for _, v := range allowedLevel {
-		t.Run("level="+v, func(t *testing.T) {
-			bp, _, err := Parse([]byte(profileBaseYAML("profile: { level: " + v + " }\n")))
+	for _, v := range allowedProfile {
+		t.Run("profile="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { profile: " + v + " }\n")))
 			if err != nil {
-				t.Fatalf("level %q: unexpected error: %v", v, err)
+				t.Fatalf("profile %q: unexpected error: %v", v, err)
 			}
-			if bp.Profile.Level != v {
-				t.Errorf("Profile.Level = %q, want %q", bp.Profile.Level, v)
+			if bp.Profile.Profile != v {
+				t.Errorf("Profile.Profile = %q, want %q", bp.Profile.Profile, v)
 			}
 		})
 	}
-	for _, v := range allowedPosture {
-		t.Run("posture="+v, func(t *testing.T) {
-			bp, _, err := Parse([]byte(profileBaseYAML("profile: { posture: " + v + " }\n")))
+	for _, v := range allowedMode {
+		t.Run("mode="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { mode: " + v + " }\n")))
 			if err != nil {
-				t.Fatalf("posture %q: unexpected error: %v", v, err)
+				t.Fatalf("mode %q: unexpected error: %v", v, err)
 			}
-			if bp.Profile.Posture != v {
-				t.Errorf("Profile.Posture = %q, want %q", bp.Profile.Posture, v)
+			if bp.Profile.Mode != v {
+				t.Errorf("Profile.Mode = %q, want %q", bp.Profile.Mode, v)
 			}
 		})
 	}
 }
 
-// TestProfileInvalidValues is the table-driven core for the F.1 dial rules:
+// TestProfileInvalidValues is the table-driven core for the F.1b dial rules:
 // each explicit bad value must produce a *ValidationError naming the field
 // and the allowed set — never a silent default.
 func TestProfileInvalidValues(t *testing.T) {
@@ -486,14 +486,14 @@ func TestProfileInvalidValues(t *testing.T) {
 		yaml string
 		want string
 	}{
-		{"bad intensity", "profile: { intensity: huge }\n",
-			`profile.intensity: must be one of light,medium,deep (got "huge")`},
-		{"bad level", "profile: { level: l4 }\n",
-			`profile.level: must be one of l1,l2,l3 (got "l4")`},
-		{"bad posture", "profile: { posture: aggressive }\n",
-			`profile.posture: must be one of passive,safe,intrusive (got "aggressive")`},
-		{"uppercase intensity", "profile: { intensity: Light }\n",
-			`profile.intensity: must be one of light,medium,deep (got "Light")`},
+		{"bad effort", "profile: { effort: huge }\n",
+			`profile.effort: must be one of brief,standard,extended (got "huge")`},
+		{"bad profile", "profile: { profile: l4 }\n",
+			`profile.profile: must be one of l1,l2,l3-selected (got "l4")`},
+		{"bad mode", "profile: { mode: aggressive }\n",
+			`profile.mode: must be one of passive,limited-active,intrusive (got "aggressive")`},
+		{"uppercase effort", "profile: { effort: Standard }\n",
+			`profile.effort: must be one of brief,standard,extended (got "Standard")`},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -514,17 +514,18 @@ func TestProfileInvalidValues(t *testing.T) {
 }
 
 // TestProfileDefaults verifies that an omitted `profile:` block (or omitted
-// individual dials) resolves to the documented defaults medium/l2/safe, so
-// F.2+ provisioning always reads a concrete value (F.1).
+// individual dials) resolves to the documented defaults
+// standard/l2/limited-active, so F.2+ provisioning always reads a concrete
+// value (F.1b).
 func TestProfileDefaults(t *testing.T) {
 	t.Run("no profile block", func(t *testing.T) {
 		bp, _, err := Parse([]byte(profileBaseYAML("")))
 		if err != nil {
 			t.Fatalf("no-profile blueprint: unexpected error: %v", err)
 		}
-		if bp.Profile.Intensity != "medium" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
-			t.Errorf("defaults = %q/%q/%q, want medium/l2/safe",
-				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		if bp.Profile.Effort != "standard" || bp.Profile.Profile != "l2" || bp.Profile.Mode != "limited-active" {
+			t.Errorf("defaults = %q/%q/%q, want standard/l2/limited-active",
+				bp.Profile.Effort, bp.Profile.Profile, bp.Profile.Mode)
 		}
 	})
 	t.Run("empty profile block", func(t *testing.T) {
@@ -532,19 +533,19 @@ func TestProfileDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("empty-profile blueprint: unexpected error: %v", err)
 		}
-		if bp.Profile.Intensity != "medium" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
-			t.Errorf("defaults = %q/%q/%q, want medium/l2/safe",
-				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		if bp.Profile.Effort != "standard" || bp.Profile.Profile != "l2" || bp.Profile.Mode != "limited-active" {
+			t.Errorf("defaults = %q/%q/%q, want standard/l2/limited-active",
+				bp.Profile.Effort, bp.Profile.Profile, bp.Profile.Mode)
 		}
 	})
 	t.Run("partial block keeps set field", func(t *testing.T) {
-		bp, _, err := Parse([]byte(profileBaseYAML("profile: { intensity: deep }\n")))
+		bp, _, err := Parse([]byte(profileBaseYAML("profile: { effort: extended }\n")))
 		if err != nil {
 			t.Fatalf("partial-profile blueprint: unexpected error: %v", err)
 		}
-		if bp.Profile.Intensity != "deep" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
-			t.Errorf("resolved = %q/%q/%q, want deep/l2/safe",
-				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		if bp.Profile.Effort != "extended" || bp.Profile.Profile != "l2" || bp.Profile.Mode != "limited-active" {
+			t.Errorf("resolved = %q/%q/%q, want extended/l2/limited-active",
+				bp.Profile.Effort, bp.Profile.Profile, bp.Profile.Mode)
 		}
 	})
 }
@@ -552,7 +553,7 @@ func TestProfileDefaults(t *testing.T) {
 // TestProfileAggregatesWithOtherProblems proves a profile problem is collected
 // alongside an unrelated one in the same aggregated error (no short-circuit).
 func TestProfileAggregatesWithOtherProblems(t *testing.T) {
-	bad := profileBaseYAML("profile: { level: l9 }\n")
+	bad := profileBaseYAML("profile: { mode: l9 }\n")
 	bad = strings.Replace(bad, "company: { name: Example Corp }", "company: { name: \"\" }", 1)
 	_, _, err := Parse([]byte(bad))
 	if err == nil {
@@ -562,7 +563,7 @@ func TestProfileAggregatesWithOtherProblems(t *testing.T) {
 	if !errors.As(err, &ve) {
 		t.Fatalf("error is %T, want *ValidationError", err)
 	}
-	for _, sub := range []string{"profile.level:", "company.name: required"} {
+	for _, sub := range []string{"profile.mode:", "company.name: required"} {
 		if !strings.Contains(err.Error(), sub) {
 			t.Errorf("aggregate error missing %q\nfull error:\n%s", sub, err)
 		}

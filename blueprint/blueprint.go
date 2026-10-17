@@ -78,15 +78,16 @@ var (
 	// allowedLLMPool are the accepted runtime.llm_pool modes; "" means off.
 	allowedLLMPool = []string{"", "off", "failover", "spread"}
 
-	// allowedIntensity, allowedLevel and allowedPosture are the accepted
-	// profile.* dial values (F.1). Each is a plain enum: intensity is the
-	// effort/budget dial (light/medium/deep), level the ASVS yardstick
-	// (l1/l2/l3), posture the permission/safety dial (passive/safe/intrusive).
-	// The three are independent; no cross-field rule exists at the schema level
-	// (F.4/F.5 enforce the posture gates; F.1 is schema only).
-	allowedIntensity = []string{"light", "medium", "deep"}
-	allowedLevel     = []string{"l1", "l2", "l3"}
-	allowedPosture   = []string{"passive", "safe", "intrusive"}
+	// allowedEffort, allowedProfile and allowedMode are the accepted profile.*
+	// dial values (F.1b, F-D1=B). Each is a plain enum: effort is the
+	// budget dial (brief/standard/extended), profile the ASVS yardstick
+	// (l1/l2/l3-selected), mode the permission/safety dial
+	// (passive/limited-active/intrusive). The three are independent; no
+	// cross-field rule exists at the schema level (F.4/F.5 enforce the mode
+	// gates; F.1b is schema only).
+	allowedEffort  = []string{"brief", "standard", "extended"}
+	allowedProfile = []string{"l1", "l2", "l3-selected"}
+	allowedMode    = []string{"passive", "limited-active", "intrusive"}
 )
 
 // ProviderFormat returns the database wire format for a blueprint llm.provider
@@ -130,11 +131,11 @@ type Blueprint struct {
 	// coverage is visible from the first boot (E.4). Optional; each name
 	// must be a known profile.
 	Standards []string `yaml:"standards"`
-	// Profile carries the three scan-profile dials (F.1): intensity (how hard
-	// we look), level (the ASVS yardstick) and posture (what we may do).
+	// Profile carries the three scan-profile dials (F.1b): effort (how hard
+	// we look), profile (the ASVS yardstick) and mode (what we may do).
 	// Optional; omitted dials resolve to the documented defaults
-	// (medium/l2/safe) via [Blueprint.ApplyProfileDefaults]. Expansion into
-	// task/runtime fields is F.2+; nothing is wired here.
+	// (standard/l2/limited-active) via [Profile.ApplyDefaults]. Expansion
+	// into task/runtime fields is F.2+; nothing is wired here.
 	Profile Profile `yaml:"profile"`
 }
 
@@ -219,43 +220,43 @@ type Admin struct {
 	Password string `yaml:"password"`
 }
 
-// Profile holds the three orthogonal scan-profile dials (Track F, F.1).
+// Profile holds the three orthogonal scan-profile dials (Track F, F.1b).
 // Each is a plain enum, validated against its own allow-set; the three are
 // independent and no cross-field rule exists at the schema level
-// (F.4/F.5 enforce the posture gates; F.1 is schema only).
+// (F.4/F.5 enforce the mode gates; F.1b is schema only).
 //
-//	Intensity — how hard do we look: light | medium | deep (budget only).
-//	Level     — against what bar:    l1 | l2 | l3 (the ASVS yardstick).
-//	Posture   — what are we allowed to do: passive | safe | intrusive.
+//	Effort  — how hard do we look: brief | standard | extended (budget only).
+//	Profile — against what bar:    l1 | l2 | l3-selected (the ASVS yardstick).
+//	Mode    — what are we allowed to do: passive | limited-active | intrusive.
 //
 // An empty dial means "omitted" and resolves to the documented default
-// (medium / l2 / safe) via [Profile.ApplyDefaults]; an explicit bad value
-// is a validation error, never a silent default.
+// (standard / l2 / limited-active) via [Profile.ApplyDefaults]; an explicit
+// bad value is a validation error, never a silent default.
 type Profile struct {
-	Intensity string `yaml:"intensity"`
-	Level     string `yaml:"level"`
-	Posture   string `yaml:"posture"`
+	Effort  string `yaml:"effort"`
+	Profile string `yaml:"profile"`
+	Mode    string `yaml:"mode"`
 }
 
 // Default profile dial values, applied when a dial is omitted.
 const (
-	DefaultIntensity = "medium"
-	DefaultLevel     = "l2"
-	DefaultPosture   = "safe"
+	DefaultEffort  = "standard"
+	DefaultProfile = "l2"
+	DefaultMode    = "limited-active"
 )
 
 // ApplyDefaults fills in the documented default for each omitted (empty)
 // dial, leaving any explicitly-set value untouched. Callers get a concrete
 // value for every dial after this, never "".
 func (p *Profile) ApplyDefaults() {
-	if p.Intensity == "" {
-		p.Intensity = DefaultIntensity
+	if p.Effort == "" {
+		p.Effort = DefaultEffort
 	}
-	if p.Level == "" {
-		p.Level = DefaultLevel
+	if p.Profile == "" {
+		p.Profile = DefaultProfile
 	}
-	if p.Posture == "" {
-		p.Posture = DefaultPosture
+	if p.Mode == "" {
+		p.Mode = DefaultMode
 	}
 }
 
@@ -290,8 +291,8 @@ func Parse(data []byte) (*Blueprint, []string, error) {
 		return nil, nil, fmt.Errorf("parse blueprint YAML: %w", err)
 	}
 	// Resolve omitted profile dials to their documented defaults before
-	// validation, so a missing `profile:` block reports medium/l2/safe and
-	// only an explicit bad value is a problem (F.1).
+	// validation, so a missing `profile:` block reports
+	// standard/l2/limited-active and only an explicit bad value is a problem (F.1b).
 	bp.Profile.ApplyDefaults()
 	warnings, err := bp.Validate()
 	return &bp, warnings, err
@@ -431,19 +432,19 @@ func (bp *Blueprint) Validate() (warnings []string, err error) {
 		}
 	}
 
-	// profile — the three scan-profile dials (F.1). Defaults are applied in
+	// profile — the three scan-profile dials (F.1b). Defaults are applied in
 	// Parse before this runs, so an empty dial here means the default value,
 	// never a missing one; only an explicit bad value is a problem. The dials
 	// are independent enums: no cross-field rule yet (F.4/F.5 enforce the
-	// posture gates; F.1 is schema only).
-	if !oneOf(bp.Profile.Intensity, allowedIntensity) {
-		add("profile.intensity: must be one of light,medium,deep (got %q)", bp.Profile.Intensity)
+	// mode gates; F.1b is schema only).
+	if !oneOf(bp.Profile.Effort, allowedEffort) {
+		add("profile.effort: must be one of brief,standard,extended (got %q)", bp.Profile.Effort)
 	}
-	if !oneOf(bp.Profile.Level, allowedLevel) {
-		add("profile.level: must be one of l1,l2,l3 (got %q)", bp.Profile.Level)
+	if !oneOf(bp.Profile.Profile, allowedProfile) {
+		add("profile.profile: must be one of l1,l2,l3-selected (got %q)", bp.Profile.Profile)
 	}
-	if !oneOf(bp.Profile.Posture, allowedPosture) {
-		add("profile.posture: must be one of passive,safe,intrusive (got %q)", bp.Profile.Posture)
+	if !oneOf(bp.Profile.Mode, allowedMode) {
+		add("profile.mode: must be one of passive,limited-active,intrusive (got %q)", bp.Profile.Mode)
 	}
 
 	// warnings (non-fatal)
