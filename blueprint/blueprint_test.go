@@ -413,3 +413,161 @@ func containsSubstr(list []string, want string) bool {
 	}
 	return false
 }
+
+// profileBaseYAML returns a minimal valid blueprint with an optional
+// `profile:` block spliced in before the admin section. An empty `block`
+// yields a blueprint with no profile section at all.
+func profileBaseYAML(block string) string {
+	return `
+version: 1
+name: example-com
+authorization:
+  authorized_by: "Jane Doe"
+  reference: "ENG-1"
+  window: { start: 2026-10-20, end: 2026-10-24 }
+company: { name: Example Corp }
+scope: [ { kind: domain, value: example.com } ]
+constraints: [ { kind: allow, text: only example.com } ]
+task: { goal: map, timeout_seconds: 3600 }
+runtime: { workers: 2, llm_max_concurrent: 2 }
+llm:
+  provider: openai-compatible
+  model: qwen-3.8
+  base_url: http://localhost:11434/v1
+  api_key: ${file:/run/secrets/llm_api_key}
+` + block + `admin: { username: ARTEX, password: "${file:/run/secrets/sw_admin_password}" }
+`
+}
+
+// TestProfileValidValues checks every valid dial value loads clean and parses
+// into the struct (F.1).
+func TestProfileValidValues(t *testing.T) {
+	for _, v := range allowedIntensity {
+		t.Run("intensity="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { intensity: " + v + " }\n")))
+			if err != nil {
+				t.Fatalf("intensity %q: unexpected error: %v", v, err)
+			}
+			if bp.Profile.Intensity != v {
+				t.Errorf("Profile.Intensity = %q, want %q", bp.Profile.Intensity, v)
+			}
+		})
+	}
+	for _, v := range allowedLevel {
+		t.Run("level="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { level: " + v + " }\n")))
+			if err != nil {
+				t.Fatalf("level %q: unexpected error: %v", v, err)
+			}
+			if bp.Profile.Level != v {
+				t.Errorf("Profile.Level = %q, want %q", bp.Profile.Level, v)
+			}
+		})
+	}
+	for _, v := range allowedPosture {
+		t.Run("posture="+v, func(t *testing.T) {
+			bp, _, err := Parse([]byte(profileBaseYAML("profile: { posture: " + v + " }\n")))
+			if err != nil {
+				t.Fatalf("posture %q: unexpected error: %v", v, err)
+			}
+			if bp.Profile.Posture != v {
+				t.Errorf("Profile.Posture = %q, want %q", bp.Profile.Posture, v)
+			}
+		})
+	}
+}
+
+// TestProfileInvalidValues is the table-driven core for the F.1 dial rules:
+// each explicit bad value must produce a *ValidationError naming the field
+// and the allowed set — never a silent default.
+func TestProfileInvalidValues(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"bad intensity", "profile: { intensity: huge }\n",
+			`profile.intensity: must be one of light,medium,deep (got "huge")`},
+		{"bad level", "profile: { level: l4 }\n",
+			`profile.level: must be one of l1,l2,l3 (got "l4")`},
+		{"bad posture", "profile: { posture: aggressive }\n",
+			`profile.posture: must be one of passive,safe,intrusive (got "aggressive")`},
+		{"uppercase intensity", "profile: { intensity: Light }\n",
+			`profile.intensity: must be one of light,medium,deep (got "Light")`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := Parse([]byte(profileBaseYAML(tc.yaml)))
+			if err == nil {
+				t.Fatalf("expected a validation error, got nil")
+			}
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("error is %T, want *ValidationError", err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error does not mention %q\nfull error:\n%s", tc.want, err)
+			}
+		})
+	}
+}
+
+// TestProfileDefaults verifies that an omitted `profile:` block (or omitted
+// individual dials) resolves to the documented defaults medium/l2/safe, so
+// F.2+ provisioning always reads a concrete value (F.1).
+func TestProfileDefaults(t *testing.T) {
+	t.Run("no profile block", func(t *testing.T) {
+		bp, _, err := Parse([]byte(profileBaseYAML("")))
+		if err != nil {
+			t.Fatalf("no-profile blueprint: unexpected error: %v", err)
+		}
+		if bp.Profile.Intensity != "medium" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
+			t.Errorf("defaults = %q/%q/%q, want medium/l2/safe",
+				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		}
+	})
+	t.Run("empty profile block", func(t *testing.T) {
+		bp, _, err := Parse([]byte(profileBaseYAML("profile: {}\n")))
+		if err != nil {
+			t.Fatalf("empty-profile blueprint: unexpected error: %v", err)
+		}
+		if bp.Profile.Intensity != "medium" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
+			t.Errorf("defaults = %q/%q/%q, want medium/l2/safe",
+				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		}
+	})
+	t.Run("partial block keeps set field", func(t *testing.T) {
+		bp, _, err := Parse([]byte(profileBaseYAML("profile: { intensity: deep }\n")))
+		if err != nil {
+			t.Fatalf("partial-profile blueprint: unexpected error: %v", err)
+		}
+		if bp.Profile.Intensity != "deep" || bp.Profile.Level != "l2" || bp.Profile.Posture != "safe" {
+			t.Errorf("resolved = %q/%q/%q, want deep/l2/safe",
+				bp.Profile.Intensity, bp.Profile.Level, bp.Profile.Posture)
+		}
+	})
+}
+
+// TestProfileAggregatesWithOtherProblems proves a profile problem is collected
+// alongside an unrelated one in the same aggregated error (no short-circuit).
+func TestProfileAggregatesWithOtherProblems(t *testing.T) {
+	bad := profileBaseYAML("profile: { level: l9 }\n")
+	bad = strings.Replace(bad, "company: { name: Example Corp }", "company: { name: \"\" }", 1)
+	_, _, err := Parse([]byte(bad))
+	if err == nil {
+		t.Fatal("expected a validation error, got nil")
+	}
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("error is %T, want *ValidationError", err)
+	}
+	for _, sub := range []string{"profile.level:", "company.name: required"} {
+		if !strings.Contains(err.Error(), sub) {
+			t.Errorf("aggregate error missing %q\nfull error:\n%s", sub, err)
+		}
+	}
+	if len(ve.Problems) < 2 {
+		t.Errorf("got %d problems, expected at least 2", len(ve.Problems))
+	}
+}
